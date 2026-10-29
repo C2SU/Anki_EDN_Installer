@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+meta.json
+*.log
+*.db
+*.ankiaddon
+profiler_logs/
+.vscode/
+.idea/
+.DS_Store

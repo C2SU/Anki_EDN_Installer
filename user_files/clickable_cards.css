@@ -1,0 +1,109 @@
+/* Clickable cards styling - used throughout the app */
+kbd.clickable_cards {
+  font-family: "Lucida console", Monaco, monospace !important;
+  font-weight: 600 !important;
+  color: #b45309 !important;
+  background: #fffbf5 !important;
+  background-color: #fffbf5 !important;
+  border-radius: 4px !important;
+  border: 1px solid #e5c98e !important;
+  display: inline-block !important;
+  font-size: 13px !important;
+  line-height: 16px !important;
+  padding: 2px 6px !important;
+  margin: 1px 3px !important;
+  text-align: center !important;
+  cursor: pointer !important;
+  width: auto !important;
+  max-width: fit-content !important;
+  box-sizing: border-box !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+  box-shadow: none !important;
+}
+kbd.clickable_cards:hover {
+  color: #2c7bb6 !important;
+  border-color: #93c5fd !important;
+  background: #f0f7ff !important;
+}
+kbd.clickable_cards:focus,
+kbd.clickable_cards:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.nightMode kbd.clickable_cards,
+.night_mode kbd.clickable_cards,
+.night-mode kbd.clickable_cards,
+body.nightMode kbd.clickable_cards,
+body.night_mode kbd.clickable_cards,
+body.night-mode kbd.clickable_cards {
+  background: #2e3238 !important;
+  background-color: #2e3238 !important;
+  border: 1px solid #4a4d52 !important;
+  color: #FFA630 !important;
+}
+.nightMode kbd.clickable_cards:hover,
+.night_mode kbd.clickable_cards:hover,
+.night-mode kbd.clickable_cards:hover,
+body.nightMode kbd.clickable_cards:hover,
+body.night_mode kbd.clickable_cards:hover,
+body.night-mode kbd.clickable_cards:hover {
+  color: #64b5f6 !important;
+  border-color: #1976d2 !important;
+}
+
+kbd.clickable_cards .edn-nid {
+  color: inherit !important;
+  font-family: inherit !important;
+  font-weight: inherit !important;
+}
+
+.edn-desc, span.edn-desc, .items > span.edn-desc {
+  display: inline !important;
+}
+
+[id*="edn-cursor-marker"], #edn-cursor-marker {
+  display: none !important;
+}
+
+
+.cartesLiees br, .items.cartesLiees br {
+  display: block !important;
+  content: "" !important;
+}
+
+#edn-preview-box {
+  position: fixed;        /* fixed = no layout reflow, spaces don't jump */
+  z-index: 99999;
+  max-width: 480px;
+  max-height: 90vh;       /* limite la hauteur et évite le surplus en bas */
+  overflow-y: auto;
+  background-color: #f5f6f7;
+  border: 2px solid #c0c1c5;
+  border-radius: 5px;
+  padding: 2px 3px !important;
+  box-sizing: border-box !important;
+  box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+  color: #1d2129;
+  font-size: 16px;
+  text-align: left;
+  display: none;
+}
+.nightMode #edn-preview-box, .night_mode #edn-preview-box, .night-mode #edn-preview-box {
+  background-color: #373a41;
+  border-color: #e5e6e9 #dfe0e4 #d0d1d5;
+  color: #fff;
+}
+
+/* Scope preview styles to ONLY apply within #edn-preview-box */
+#edn-preview-box .preview-recto {
+  font-weight: bold;
+  border-bottom: 1px solid #c0c1c5;
+  padding-bottom: 5px;
+  margin-bottom: 5px;
+  text-align: center;
+}
+#edn-preview-box .preview-verso {
+  font-size: 14px;
+}

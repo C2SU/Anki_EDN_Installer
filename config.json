@@ -1,0 +1,6 @@
+{
+    "modules": {
+        "history": true,
+        "fsrs_checker": true
+    }
+}
