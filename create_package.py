@@ -17,7 +17,8 @@ EXCLUDES = [
     "test_filtered_decks.py",
     "test_ankicollab_safety.py",
     "test_field_protection.py",
-    "test_setup_assistant.py"
+    "test_setup_assistant.py",
+    "test_edn_redaction_and_fsrs.py"
 ]
 
 def should_exclude(rel_path):

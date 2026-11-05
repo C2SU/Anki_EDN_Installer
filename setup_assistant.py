@@ -364,7 +364,7 @@ def apply_edn_deck_preset(col=None) -> Tuple[bool, str]:
         print(f"[setup_assistant] Erreur affectation préréglage aux paquets: {e}")
 
     return True, (
-        f"Préréglage '{preset_name}' configuré (FSRS 88%, cartes sœurs enfouies, max 30 nlles/jour) "
+        f"Préréglage '{preset_name}' configuré (FSRS, cartes sœurs enfouies, max 30 nlles/jour) "
         f"et assigné à {assigned_count} paquet(s) EDN."
     )
 
@@ -430,20 +430,31 @@ def detect_edn_preset_status(col=None) -> dict:
 
 def suspend_initial_edn_cards(col=None) -> Tuple[bool, str]:
     """
-    Suspend all cards tagged EDN (or in EDN decks) so the student can unsuspend
+    Suspend new cards tagged EDN (or in EDN decks) so the student can unsuspend
     them progressively item by item after studying their medical lectures.
+    Never suspends cards already reviewed or in learning.
     """
     if col is None and mw:
         col = mw.col
     if not col:
         return False, "Collection Anki non disponible."
 
-    cids = col.find_cards("tag:EDN*")
+    search_prefix = "tag:EDN*"
+    cids = col.find_cards(f"{search_prefix} is:new -is:suspended")
     if not cids:
-        cids = col.find_cards('"deck:*EDN*"')
+        search_prefix = '"deck:*EDN*"'
+        cids = col.find_cards(f"{search_prefix} is:new -is:suspended")
 
     if not cids:
-        return True, "Aucune carte EDN détectée à suspendre."
+        # If no new unsuspended cards exist, mark as done
+        try:
+            from .shared_menu import get_config, save_config
+            cfg = get_config()
+            cfg["initial_suspension_done"] = True
+            save_config(cfg)
+        except Exception:
+            pass
+        return True, "Aucune nouvelle carte EDN à suspendre (déjà suspendues ou en révision)."
 
     try:
         col.sched.suspend_cards(cids)
@@ -464,6 +475,7 @@ def suspend_initial_edn_cards(col=None) -> Tuple[bool, str]:
 def detect_initial_suspension_status(col=None) -> dict:
     """
     Detect whether the initial suspension of EDN cards has already been done.
+    Correctly recognizes profiles where cards are already learned or predominantly suspended.
     """
     if col is None and mw:
         col = mw.col
@@ -471,6 +483,15 @@ def detect_initial_suspension_status(col=None) -> dict:
         return {"done": False, "badge": "Non disponible", "details": "Collection non disponible"}
 
     try:
+        from .shared_menu import get_config
+        cfg = get_config()
+        if cfg.get("initial_suspension_done"):
+            return {
+                "done": True,
+                "badge": "Déjà configuré",
+                "details": "Suspension initiale déjà validée sur ce profil"
+            }
+
         edn_cids = col.find_cards("tag:EDN*")
         search_prefix = "tag:EDN*"
         if not edn_cids:
@@ -487,16 +508,34 @@ def detect_initial_suspension_status(col=None) -> dict:
         suspended = col.find_cards(f"{search_prefix} is:suspended")
         count_suspended = len(suspended)
 
+        learned = col.find_cards(f"{search_prefix} -is:new")
+        count_learned = len(learned)
+
+        # 1. No new cards need suspension
         if count_unsuspended_new == 0:
-            return {"done": True, "badge": "Déjà configuré", "details": f"Cartes suspendues ({count_suspended}/{total_edn})"}
+            return {
+                "done": True,
+                "badge": "Déjà configuré",
+                "details": f"Toutes les cartes sont suspendues ou apprises ({count_suspended} susp., {count_learned} apprises)"
+            }
 
-        if count_suspended > 0 and (count_suspended / total_edn) >= 0.85:
-            return {"done": True, "badge": "Déjà configuré", "details": f"Majorité des cartes déjà suspendues ({count_suspended}/{total_edn})"}
+        # 2. Student is already studying or deck is largely initialized
+        # E.g. rest of 20,000 cards are suspended or learned, only active pool remains blue
+        managed_count = count_suspended + count_learned
+        if managed_count > 0:
+            ratio_managed = managed_count / total_edn
+            if ratio_managed >= 0.50 or count_learned >= 30 or count_suspended >= 100:
+                return {
+                    "done": True,
+                    "badge": "Déjà configuré",
+                    "details": f"Deck déjà initialisé ({count_suspended} suspendues, {count_learned} apprises, {count_unsuspended_new} actives)"
+                }
 
+        # 3. Genuinely untouched new deck needing initial suspension
         return {
             "done": False,
             "badge": "À appliquer",
-            "details": f"{count_unsuspended_new} nouvelle(s) carte(s) non suspendue(s)"
+            "details": f"{count_unsuspended_new} nouvelle(s) carte(s) à suspendre pour débuter"
         }
     except Exception as e:
         return {"done": False, "badge": "Erreur", "details": f"Erreur détection: {e}"}
@@ -509,7 +548,67 @@ def detect_all_setup_statuses(col=None) -> Dict[str, dict]:
         "nids": detect_nid_repair_status(col=col),
         "preset": detect_edn_preset_status(col=col),
         "suspend": detect_initial_suspension_status(col=col),
+        "symbols": detect_edn_symbols_status(col=col),
     }
+
+
+# -----------------------------------------------------------------------------
+# 4b. Action: Import EDN Symbols (Insert Symbols As You Type)
+# -----------------------------------------------------------------------------
+
+def apply_edn_symbols_import() -> Tuple[bool, str]:
+    """Import medical abbreviations and symbols from raccourcis.csv into Anki collection."""
+    try:
+        from .symbols_importer import import_edn_symbols
+        ok, msg, cnt = import_edn_symbols(force=True)
+        return ok, msg
+    except Exception as e:
+        return False, f"Erreur import symboles : {e}"
+
+
+def detect_edn_symbols_status(col=None) -> dict:
+    """Detect whether symbols from raccourcis.csv are already in table ins_symbols."""
+    if col is None and mw:
+        col = mw.col
+    if not col or not hasattr(col, "db"):
+        return {"done": False, "badge": "Non disponible", "details": "Collection non accessible"}
+    try:
+        from .symbols_importer import load_edn_symbols_from_csv
+        symbols = load_edn_symbols_from_csv()
+        if not symbols:
+            return {"done": True, "badge": "À jour", "details": "Fichier de symboles vide"}
+
+        tbl = col.db.first("SELECT name FROM sqlite_master WHERE type='table' AND name='ins_symbols'")
+        if not tbl:
+            return {
+                "done": False,
+                "badge": "À importer",
+                "details": f"{len(symbols)} symboles médicaux à importer (Insert Symbols)"
+            }
+
+        rows = col.db.all("SELECT key FROM ins_symbols")
+        existing_keys = {r[0] for r in rows}
+        missing = [k for k, v in symbols if k not in existing_keys]
+        if not missing:
+            return {
+                "done": True,
+                "badge": "Déjà configuré",
+                "details": f"{len(symbols)} symboles et raccourcis importés"
+            }
+        elif len(missing) < len(symbols):
+            return {
+                "done": False,
+                "badge": "Partiellement configuré",
+                "details": f"{len(symbols) - len(missing)}/{len(symbols)} symboles présents ({len(missing)} manquants)"
+            }
+        else:
+            return {
+                "done": False,
+                "badge": "À importer",
+                "details": f"{len(symbols)} symboles à importer pour la saisie médicale"
+            }
+    except Exception as e:
+        return {"done": False, "badge": "Erreur", "details": f"Erreur détection: {e}"}
 
 
 # -----------------------------------------------------------------------------
@@ -591,20 +690,29 @@ class EDNSetupAssistantDialog(QDialog):
 
         # Options Container Frame
         frame = QFrame()
+        frame.setObjectName("options_frame")
         frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#options_frame {{
                 background-color: {bg_card};
                 border: 1px solid {border_card};
                 border-radius: 6px;
             }}
+            #options_frame QLabel {{
+                border: none;
+                background: transparent;
+            }}
+            #options_frame QWidget {{
+                border: none;
+                background: transparent;
+            }}
         """)
         frame_layout = QVBoxLayout(frame)
         frame_layout.setContentsMargins(14, 12, 14, 12)
-        frame_layout.setSpacing(10)
+        frame_layout.setSpacing(12)
 
         # 1. Options globales
         self.cb_options, row_options = self._create_option_row(
-            title="Options globales AnkiCollab & AnkiWeb (mises à jour au lancement, suspension auto, sync auto)",
+            title="Options globales AnkiCollab et AnkiWeb (mises à jour au lancement, suspension auto, sync auto)",
             tooltip_text=(
                 "Active le téléchargement automatique des mises à jour au démarrage, la suspension native des cartes ajoutées,\n"
                 "et la synchronisation automatique des médias et de la collection avec AnkiWeb."
@@ -616,7 +724,7 @@ class EDNSetupAssistantDialog(QDialog):
 
         # 2. Réparation NID + sync
         self.cb_nids, row_nids = self._create_option_row(
-            title="Réparation des NID des cartes liées & synchronisation avec AnkiWeb",
+            title="Réparation des NID des cartes liées et synchronisation avec AnkiWeb",
             tooltip_text=(
                 "Aligne les identifiants locaux des notes pour rendre opérationnelle la navigation entre cartes liées,\n"
                 "puis déclenche une synchronisation avec AnkiWeb."
@@ -628,9 +736,9 @@ class EDNSetupAssistantDialog(QDialog):
 
         # 3. Préréglage options révision
         self.cb_preset, row_preset = self._create_option_row(
-            title="Préréglage de révision 'Anki EDN' (FSRS 88%, cartes sœurs enfouies) assigné au paquet",
+            title="Préréglage de révision 'Anki EDN' (FSRS, cartes sœurs enfouies) assigné au paquet",
             tooltip_text=(
-                "Active FSRS, configure la rétention cible à 88%, enfouit les cartes sœurs nouvelles et en révision,\n"
+                "Active FSRS, configure la rétention cible recommandée, enfouit les cartes sœurs nouvelles et en révision,\n"
                 "fixe les nouvelles cartes à 30/jour et affecte ce préréglage à tous vos paquets EDN."
             ),
             status=self.statuses.get("preset", {}),
@@ -642,7 +750,7 @@ class EDNSetupAssistantDialog(QDialog):
         self.cb_suspend, row_suspend = self._create_option_row(
             title="Suspension initiale des cartes EDN (recommandé : déblocage item par item après le cours)",
             tooltip_text=(
-                "Suspend l'intégralité du paquet au départ. Vous désuspendrez uniquement les cartes correspondant\n"
+                "Suspend les nouvelles cartes au départ. Vous désuspendrez uniquement les cartes correspondant\n"
                 "aux items médicaux au fur et à mesure de votre apprentissage des cours."
             ),
             status=self.statuses.get("suspend", {}),
@@ -650,12 +758,24 @@ class EDNSetupAssistantDialog(QDialog):
         )
         frame_layout.addWidget(row_suspend)
 
+        # 5. Import des symboles et abréviations
+        self.cb_symbols, row_symbols = self._create_option_row(
+            title="Symboles et abréviations médicales (Insert Symbols As You Type)",
+            tooltip_text=(
+                "Importe automatiquement le fichier raccourcis.csv du tutoriel dans l'extension Insert Symbols As You Type\n"
+                "(symboles, flèches, unités et abréviations médicales pour la rédaction et les révisions)."
+            ),
+            status=self.statuses.get("symbols", {}),
+            dark=dark
+        )
+        frame_layout.addWidget(row_symbols)
+
         layout.addWidget(frame)
 
         hint_lbl = QLabel(
             f"<span style='font-size: 11px; color: {text_muted};'>"
-            "Vous pourrez réexécuter cet assistant à tout moment depuis les "
-            "<b>Paramètres EDN &gt; Rétablir les réglages du tuto</b>."
+            "Vous pourrez réexécuter cet assistant à tout moment depuis le menu "
+            "<b>Anki EDN &gt; Rétablir les réglages du tuto...</b>"
             "</span>"
         )
         hint_lbl.setWordWrap(True)
@@ -738,6 +858,7 @@ class EDNSetupAssistantDialog(QDialog):
                 f"<span style='font-size: 11px; color: {text_muted};'>"
                 f"• {detail_text}</span>"
             )
+            detail_lbl.setStyleSheet("border: none; background: transparent; padding: 2px 0;")
             detail_lbl.setContentsMargins(22, 0, 0, 0)
             detail_lbl.setWordWrap(True)
             row_layout.addWidget(detail_lbl)
@@ -750,7 +871,8 @@ class EDNSetupAssistantDialog(QDialog):
             self.cb_options.isChecked() or
             self.cb_nids.isChecked() or
             self.cb_preset.isChecked() or
-            self.cb_suspend.isChecked()
+            self.cb_suspend.isChecked() or
+            getattr(self, "cb_symbols", None) and self.cb_symbols.isChecked()
         )
         if has_checked:
             self.apply_btn.setText("Appliquer les réglages sélectionnés")
@@ -779,7 +901,8 @@ class EDNSetupAssistantDialog(QDialog):
             self.cb_options.isChecked() or
             self.cb_nids.isChecked() or
             self.cb_preset.isChecked() or
-            self.cb_suspend.isChecked()
+            self.cb_suspend.isChecked() or
+            (hasattr(self, "cb_symbols") and self.cb_symbols.isChecked())
         )
         if not has_checked:
             self.accept()
@@ -805,6 +928,11 @@ class EDNSetupAssistantDialog(QDialog):
         # 4. Suspension
         if self.cb_suspend.isChecked():
             ok, msg = suspend_initial_edn_cards()
+            reports.append(msg)
+
+        # 5. Symboles et raccourcis
+        if hasattr(self, "cb_symbols") and self.cb_symbols.isChecked():
+            ok, msg = apply_edn_symbols_import()
             reports.append(msg)
 
         # Mark shown & completed in config

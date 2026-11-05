@@ -92,40 +92,87 @@ def clean_specialty_name(raw_tag: str) -> str:
     return top.replace("-", " ").replace("_", " ").capitalize()
 
 
-def clean_item_label(item_tag: str) -> Tuple[int, str]:
+def format_medical_part(text: str) -> str:
+    """Met en forme une partie de texte en préservant les acronymes médicaux usuels."""
+    words = text.replace("-", " ").replace("_", " ").split()
+    res = []
+    for w in words:
+        if w.isupper() and len(w) <= 6:
+            res.append(w)
+        else:
+            res.append(w.capitalize())
+    return " ".join(res)
+
+
+def parse_item_tag(tag: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Extrait le numéro et génère un libellé propre d'item en préservant les acronymes médicaux.
+    Décompose un tag d'item en (base_item_tag, subtag).
+    Exemple : 'EDN::item-236-Troubles-conduction::BAV' -> ('EDN::item-236-Troubles-conduction', 'BAV')
+    Exemple : 'EDN::item-224-HTA' -> ('EDN::item-224-HTA', None)
+    Exemple : 'item-001' -> ('item-001', None)
+    """
+    t = tag.strip()
+    m = re.match(r"^(?:edn::)?(item[_-]\d+[^:]*)(?:::+(.*))?$", t, re.IGNORECASE)
+    if m:
+        base_item = m.group(1)
+        base_tag = f"EDN::{base_item}" if t.lower().startswith("edn::") else base_item
+        subtag = m.group(2).strip() if m.group(2) else None
+        return base_tag, subtag
+    return None, None
+
+
+def clean_subtag_label(subtag: str) -> str:
+    """
+    Génère un libellé soigné pour un sous-tag d'item en préservant les acronymes médicaux.
+    Exemple : 'Syndrome-canalaire' -> 'Syndrome Canalaire'
+    Exemple : 'GNRP::Maladie-de-Goodpasture' -> 'GNRP - Maladie De Goodpasture'
+    Exemple : 'OAP' -> 'OAP'
+    """
+    if not subtag:
+        return ""
+    subparts = [p.strip() for p in subtag.split("::") if p.strip()]
+    return " - ".join(format_medical_part(p) for p in subparts)
+
+
+def clean_item_base_label(base_tag: str) -> Tuple[int, str]:
+    """
+    Extrait le numéro et génère le libellé propre de l'item de base (sans sous-tag).
     Exemple : 'EDN::item-224-HTA' -> (224, 'Item 224 - HTA')
-    Exemple : 'EDN::item-236-Troubles-conduction::BAV' -> (236, 'Item 236 - Troubles Conduction - BAV')
+    Exemple : 'EDN::item-236-Troubles-conduction' -> (236, 'Item 236 - Troubles Conduction')
     """
-    tag = item_tag.strip()
+    tag = base_tag.strip()
     if tag.lower().startswith("edn::"):
         tag = tag[5:].strip()
 
-    def _format_part(text: str) -> str:
-        words = text.replace("-", " ").replace("_", " ").split()
-        res = []
-        for w in words:
-            if w.isupper() and len(w) <= 6:
-                res.append(w)
-            else:
-                res.append(w.capitalize())
-        return " ".join(res)
-
-    # Détection item et numéro
     m = re.match(r"^item[_-]?0*(\d+)[_-]?(.*)$", tag, re.IGNORECASE)
     if m:
         item_num = int(m.group(1))
         rest = m.group(2).strip()
         if rest:
             subparts = [p.strip() for p in rest.split("::") if p.strip()]
-            formatted_parts = [_format_part(p) for p in subparts]
+            formatted_parts = [format_medical_part(p) for p in subparts]
             formatted_rest = " - ".join(formatted_parts)
             return item_num, f"Item {item_num:03d} - {formatted_rest}"
         return item_num, f"Item {item_num:03d}"
     
     subparts = [p.strip() for p in tag.split("::") if p.strip()]
-    return 9999, " - ".join(_format_part(p) for p in subparts)
+    return 9999, " - ".join(format_medical_part(p) for p in subparts)
+
+
+def clean_item_label(item_tag: str) -> Tuple[int, str]:
+    """
+    Extrait le numéro et génère un libellé propre d'item en préservant les acronymes médicaux.
+    Exemple : 'EDN::item-224-HTA' -> (224, 'Item 224 - HTA')
+    Exemple : 'EDN::item-236-Troubles-conduction::BAV' -> (236, 'Item 236 - Troubles Conduction - BAV')
+    """
+    base_tag, subtag = parse_item_tag(item_tag)
+    if not base_tag:
+        return 9999, format_medical_part(item_tag)
+    item_num, base_label = clean_item_base_label(base_tag)
+    if subtag:
+        sub_label = clean_subtag_label(subtag)
+        return item_num, f"{base_label} - {sub_label}"
+    return item_num, base_label
 
 
 def find_edn_deck_name(col=None) -> str:
@@ -261,6 +308,8 @@ def analyze_edn_curriculum(col=None, threshold_pct: float = 40.0) -> Dict[str, A
     """
     Analyse les notes EDN dans SQLite et calcule pour chaque spécialité les items
     ayant >= threshold_pct de leurs cartes portant le tag de la spécialité.
+    Identifie précisément les items de base et leurs sous-tags structurés pour permettre
+    la création d'une arborescence dépliable sans perte des cartes sans sous-tag.
     """
     if col is None:
         if mw is None or mw.col is None:
@@ -271,52 +320,101 @@ def analyze_edn_curriculum(col=None, threshold_pct: float = 40.0) -> Dict[str, A
     query = "SELECT id, tags FROM notes WHERE tags LIKE '%item-%' OR tags LIKE '%item_%'"
     rows = db.all(query)
 
-    item_to_notes = defaultdict(set)
-    item_to_specialties = defaultdict(Counter)
-    all_detected_specs = Counter()
+    base_item_notes = defaultdict(set)
+    base_item_spec_notes = defaultdict(lambda: defaultdict(set))
+    base_item_all_subtags = defaultdict(set)
+    base_item_sub_spec_notes = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
+    base_item_baseonly_spec_notes = defaultdict(lambda: defaultdict(set))
 
     for nid, tags_str in rows:
         if not tags_str:
             continue
         tags = [t for t in tags_str.strip().split() if t]
-        
-        # Tags d'items
-        item_tags = [t for t in tags if re.match(r"^(?:edn::)?item[_-]\d+", t, re.IGNORECASE)]
-        
-        # Tags de spécialités
-        spec_tags = set()
-        for t in tags:
-            if is_specialty_tag(t):
-                spec_name = clean_specialty_name(t)
-                spec_tags.add(spec_name)
-                all_detected_specs[spec_name] += 1
-                
-        for it in item_tags:
-            item_to_notes[it].add(nid)
-            for sp in spec_tags:
-                item_to_specialties[it][sp] += 1
 
-    # Construction des spécialités et qualification des items
+        # Spécialités candidates sur la note
+        spec_tags = set(clean_specialty_name(t) for t in tags if is_specialty_tag(t))
+
+        # Extraction des items et sous-tags
+        note_base_items = set()
+        note_item_subtags = defaultdict(set)
+        for t in tags:
+            b_tag, sub = parse_item_tag(t)
+            if b_tag:
+                note_base_items.add(b_tag)
+                if sub:
+                    note_item_subtags[b_tag].add(sub)
+                    base_item_all_subtags[b_tag].add(sub)
+
+        for b_tag in note_base_items:
+            base_item_notes[b_tag].add(nid)
+            for sp in spec_tags:
+                base_item_spec_notes[b_tag][sp].add(nid)
+                if note_item_subtags[b_tag]:
+                    for s in note_item_subtags[b_tag]:
+                        base_item_sub_spec_notes[b_tag][sp][s].add(nid)
+                else:
+                    base_item_baseonly_spec_notes[b_tag][sp].add(nid)
+
+    # Qualification des items par spécialité
     specialties_data = {}
     for sp in CANONICAL_SPECIALTIES:
         specialties_data[sp] = {"item_count": 0, "total_cards": 0, "items": []}
 
-    for it, spec_counts in item_to_specialties.items():
-        total_notes_in_item = len(item_to_notes[it])
-        item_num, label = clean_item_label(it)
-        
-        for sp, count in spec_counts.items():
+    for b_tag, sp_dict in base_item_spec_notes.items():
+        total_notes_in_item = len(base_item_notes[b_tag])
+        item_num, base_label = clean_item_base_label(b_tag)
+        all_subs = base_item_all_subtags.get(b_tag, set())
+
+        for sp, spec_notes in sp_dict.items():
+            count = len(spec_notes)
             pct = (count / total_notes_in_item) * 100.0 if total_notes_in_item > 0 else 0.0
             if pct >= threshold_pct:
                 if sp not in specialties_data:
                     specialties_data[sp] = {"item_count": 0, "total_cards": 0, "items": []}
+
+                subtags_list = []
+                if all_subs:
+                    # Cartes de l'item sans sous-tag (Généralités)
+                    base_only = base_item_baseonly_spec_notes[b_tag].get(sp, set())
+                    if base_only:
+                        base_query = f'"tag:{b_tag}*" -"tag:{b_tag}::*"'
+                        subtags_list.append({
+                            "name": "Généralités",
+                            "subtag": None,
+                            "tag_query": base_query,
+                            "spec_cards": len(base_only),
+                            "is_base_only": True
+                        })
+
+                    # Cartes pour chaque sous-tag
+                    for s in sorted(all_subs):
+                        s_notes = base_item_sub_spec_notes[b_tag][sp].get(s, set())
+                        if s_notes:
+                            s_label = clean_subtag_label(s)
+                            has_children = any(other.startswith(s + "::") for other in all_subs if other != s)
+                            if has_children:
+                                sub_query = f'"tag:{b_tag}::{s}*" -"tag:{b_tag}::{s}::*"'
+                            else:
+                                sub_query = f'"tag:{b_tag}::{s}*"'
+                            subtags_list.append({
+                                "name": s_label,
+                                "subtag": s,
+                                "tag_query": sub_query,
+                                "spec_cards": len(s_notes),
+                                "is_base_only": False
+                            })
+
+                has_subtags = bool(subtags_list)
+
                 specialties_data[sp]["items"].append({
-                    "tag": it,
-                    "label": label,
+                    "tag": b_tag,
+                    "label": base_label,
                     "item_num": item_num,
                     "total_cards": total_notes_in_item,
                     "spec_cards": count,
-                    "pct": pct
+                    "pct": pct,
+                    "has_subtags": has_subtags,
+                    "subtags": subtags_list
                 })
 
     # Nettoyage et tri des spécialités
@@ -331,7 +429,7 @@ def analyze_edn_curriculum(col=None, threshold_pct: float = 40.0) -> Dict[str, A
 
     return {
         "specialties": final_specialties,
-        "total_items": len(item_to_notes),
+        "total_items": len(base_item_notes),
         "total_notes": len(rows)
     }
 
@@ -342,24 +440,33 @@ def build_filtered_query(
     specialty: Optional[str] = None,
     scope: str = "volet_matiere",
     card_filter: str = "due_and_new",
-    rank_filter: str = "all"
+    rank_filter: str = "all",
+    tag_query: Optional[str] = None
 ) -> str:
     """
     Construit la syntaxe exacte de la requête de recherche pour un paquet filtré.
     Le statut par défaut est 'due_and_new' : (is:due or is:new).
+    Si tag_query est fourni, il est injecté directement pour le ciblage des tags.
     """
-    parts = [f'deck:"{edn_deck}"', f'"tag:{item_tag}*"']
+    parts = [f'deck:"{edn_deck}"']
+
+    if tag_query:
+        parts.append(tag_query)
+    else:
+        parts.append(f'"tag:{item_tag}*"')
 
     # Volet matière de l'item vs Item complet
     if scope == "volet_matiere" and specialty:
         spec_norm = specialty.replace(" ", "-")
         parts.append(f'tag:{spec_norm}*')
 
-    # Rangs A/B
+    # Rangs A/B/C
     if rank_filter == "A":
         parts.append('(tag:Rang_A* or tag:rang::a*)')
     elif rank_filter == "B":
         parts.append('(tag:Rang_B* or tag:rang::b*)')
+    elif rank_filter == "C":
+        parts.append('(tag:Rang_C* or tag:rang::c*)')
 
     # Filtre d'échéance / statut
     if card_filter == "due_and_new":
@@ -386,8 +493,11 @@ def generate_filtered_hierarchy(
     Génère l'arborescence complète des paquets :
     - Paquet racine normal conteneur : 'EDN - Paquets Filtrés'
     - Paquets dossiers normaux : 'EDN - Paquets Filtrés::{Specialty}'
-    - Paquets filtrés feuilles : 'EDN - Paquets Filtrés::{Specialty}::{Item_Label}'
-    Si selected_items est fourni ({specialty: [item_tag, ...]}), génère uniquement les items cochés.
+    - Si l'item n'a pas de sous-tag : paquet filtré feuille direct 'EDN - Paquets Filtrés::{Specialty}::{Item_Label}'
+    - Si l'item a des sous-tags :
+        - Paquet normal conteneur 'EDN - Paquets Filtrés::{Specialty}::{Item_Label}'
+        - Paquets filtrés feuilles pour chaque sous-partie (ex: Généralités, OAP, Traitement...)
+    Si selected_items est fourni ({specialty: [item_tag, ...]}), génère uniquement les éléments cochés.
     """
     if col is None:
         if mw is None or mw.col is None:
@@ -429,17 +539,30 @@ def generate_filtered_hierarchy(
             if root_deck and root_deck.get("conf") != edn_conf_id:
                 col.decks.set_config_id_for_deck_dict(root_deck, edn_conf_id)
 
-        # Calculer le nombre total d'items effectifs à traiter
+        # Calculer le nombre total de paquets filtrés effectifs à traiter
         total_items_to_process = 0
         for sp in selected_specialties:
             sp_data = specialties_dict.get(sp)
             if not sp_data or not sp_data.get("items"):
                 continue
-            if selected_items and sp in selected_items:
-                allowed_tags = set(selected_items[sp])
-                total_items_to_process += len([it for it in sp_data["items"] if it["tag"] in allowed_tags])
-            else:
-                total_items_to_process += len(sp_data["items"])
+            for it in sp_data["items"]:
+                b_tag = it["tag"]
+                has_sub = it.get("has_subtags", False)
+                sub_list = it.get("subtags", [])
+                if selected_items and sp in selected_items:
+                    allowed = set(selected_items[sp])
+                    if not has_sub:
+                        if b_tag in allowed:
+                            total_items_to_process += 1
+                    else:
+                        for s in sub_list:
+                            if b_tag in allowed or s["name"] in allowed or f"{b_tag}::{s['name']}" in allowed:
+                                total_items_to_process += 1
+                else:
+                    if not has_sub:
+                        total_items_to_process += 1
+                    else:
+                        total_items_to_process += len(sub_list)
 
         processed = 0
 
@@ -450,8 +573,24 @@ def generate_filtered_hierarchy(
 
             items_to_process = sp_data["items"]
             if selected_items and sp in selected_items:
-                allowed_tags = set(selected_items[sp])
-                items_to_process = [it for it in items_to_process if it["tag"] in allowed_tags]
+                allowed_entries = set(selected_items[sp])
+                filtered_items = []
+                for it in items_to_process:
+                    b_tag = it["tag"]
+                    has_sub = it.get("has_subtags", False)
+                    if not has_sub:
+                        if b_tag in allowed_entries:
+                            filtered_items.append(it)
+                    else:
+                        checked_subs = [
+                            s for s in it.get("subtags", [])
+                            if b_tag in allowed_entries or s["name"] in allowed_entries or f"{b_tag}::{s['name']}" in allowed_entries
+                        ]
+                        if checked_subs:
+                            it_copy = dict(it)
+                            it_copy["subtags"] = checked_subs
+                            filtered_items.append(it_copy)
+                items_to_process = filtered_items
 
             if not items_to_process:
                 continue
@@ -466,48 +605,100 @@ def generate_filtered_hierarchy(
                     col.decks.set_config_id_for_deck_dict(sp_deck, edn_conf_id)
 
             for item_info in items_to_process:
-                item_tag = item_info["tag"]
-                item_label = item_info["label"]
-                leaf_deck_name = f"{sp_deck_name}::{item_label}"
+                has_subtags = item_info.get("has_subtags", False)
+                subtags = item_info.get("subtags", [])
 
-                # 3. Récupération ou création du paquet filtré feuille
-                did = col.decks.id_for_name(leaf_deck_name)
-                if did:
-                    # Vérifier si c'est bien un paquet filtré
-                    if not col.decks.is_filtered(did):
-                        col.decks.remove([did])
+                if not has_subtags or not subtags:
+                    # Item simple sans sous-tag : paquet filtré feuille direct
+                    leaf_deck_name = f"{sp_deck_name}::{item_info['label']}"
+                    did = col.decks.id_for_name(leaf_deck_name)
+                    if did:
+                        if not col.decks.is_filtered(did):
+                            col.decks.remove([did])
+                            did = col.decks.new_filtered(leaf_deck_name)
+                    else:
                         did = col.decks.new_filtered(leaf_deck_name)
+
+                    query = build_filtered_query(
+                        edn_deck=edn_deck,
+                        item_tag=item_info["tag"],
+                        specialty=sp,
+                        scope=scope,
+                        card_filter=card_filter,
+                        rank_filter=rank_filter
+                    )
+
+                    deck = col.decks.get(did)
+                    deck["terms"] = [[query, limit, resolved_order]]
+                    deck["resched"] = bool(resched)
+                    deck["delays"] = None  # Hérite des pas d'apprentissage du deck principal
+                    col.decks.save(deck)
+                    created_decks += 1
+
+                    if rebuild:
+                        try:
+                            res = col.sched.rebuild_filtered_deck(did)
+                            rebuilt_cards += res.count
+                        except Exception as e:
+                            log_error(f"Erreur reconstruction paquet {leaf_deck_name}: {e}")
+
+                    processed += 1
+                    if progress_callback:
+                        progress_callback(processed, total_items_to_process, leaf_deck_name)
                 else:
-                    did = col.decks.new_filtered(leaf_deck_name)
+                    # Item avec sous-tags :
+                    # 1. Créer le conteneur normal pour l'item (dyn: 0)
+                    item_container_name = f"{sp_deck_name}::{item_info['label']}"
+                    old_did = col.decks.id_for_name(item_container_name)
+                    if old_did and col.decks.is_filtered(old_did):
+                        col.sched.empty_filtered_deck(old_did)
+                        col.decks.remove([old_did])
 
-                # 4. Configuration de la requête de recherche
-                query = build_filtered_query(
-                    edn_deck=edn_deck,
-                    item_tag=item_tag,
-                    specialty=sp,
-                    scope=scope,
-                    card_filter=card_filter,
-                    rank_filter=rank_filter
-                )
+                    col.decks.add_normal_deck_with_name(item_container_name)
+                    item_did = col.decks.id_for_name(item_container_name)
+                    if item_did and edn_conf_id:
+                        it_deck = col.decks.get(item_did)
+                        if it_deck and it_deck.get("conf") != edn_conf_id:
+                            col.decks.set_config_id_for_deck_dict(it_deck, edn_conf_id)
 
-                deck = col.decks.get(did)
-                deck["terms"] = [[query, limit, resolved_order]]
-                deck["resched"] = bool(resched)
-                deck["delays"] = None  # Hérite des pas d'apprentissage du deck principal
-                col.decks.save(deck)
-                created_decks += 1
+                    # 2. Pour chaque sous-partie (Généralités et sous-tags spécifiques)
+                    for sub in subtags:
+                        sub_deck_name = f"{item_container_name}::{sub['name']}"
+                        did = col.decks.id_for_name(sub_deck_name)
+                        if did:
+                            if not col.decks.is_filtered(did):
+                                col.decks.remove([did])
+                                did = col.decks.new_filtered(sub_deck_name)
+                        else:
+                            did = col.decks.new_filtered(sub_deck_name)
 
-                # 5. Reconstruction optionnelle
-                if rebuild:
-                    try:
-                        res = col.sched.rebuild_filtered_deck(did)
-                        rebuilt_cards += res.count
-                    except Exception as e:
-                        log_error(f"Erreur reconstruction paquet {leaf_deck_name}: {e}")
+                        query = build_filtered_query(
+                            edn_deck=edn_deck,
+                            item_tag=item_info["tag"],
+                            specialty=sp,
+                            scope=scope,
+                            card_filter=card_filter,
+                            rank_filter=rank_filter,
+                            tag_query=sub["tag_query"]
+                        )
 
-                processed += 1
-                if progress_callback:
-                    progress_callback(processed, total_items_to_process, leaf_deck_name)
+                        deck = col.decks.get(did)
+                        deck["terms"] = [[query, limit, resolved_order]]
+                        deck["resched"] = bool(resched)
+                        deck["delays"] = None
+                        col.decks.save(deck)
+                        created_decks += 1
+
+                        if rebuild:
+                            try:
+                                res = col.sched.rebuild_filtered_deck(did)
+                                rebuilt_cards += res.count
+                            except Exception as e:
+                                log_error(f"Erreur reconstruction sous-paquet {sub_deck_name}: {e}")
+
+                        processed += 1
+                        if progress_callback:
+                            progress_callback(processed, total_items_to_process, sub_deck_name)
 
         # Harmonisation finale des options de tous les paquets conteneurs de l'arborescence
         sync_hierarchy_deck_options(root_name, col)
@@ -703,7 +894,6 @@ DEFAULT_FILTERED_DECKS_SETTINGS: Dict[str, Any] = {
     "rank_filter": "all",
     "order": "inherit",
     "resched": True,
-    "auto_sync": False,
     "filter_only_selected": False,
     "selected_specs": [],
     "selected_items": {},
@@ -855,10 +1045,10 @@ def _install_ankicollab_pull_guard():
                 im._edn_orig_handle_pull = orig
                 def wrapped_pull(*args, **kwargs):
                     active_dids = []
-                    target_col = getattr(mw, "col", None) if mw else None
+                    import aqt
+                    target_col = getattr(aqt.mw, "col", None) if getattr(aqt, "mw", None) else getattr(mw, "col", None)
                     try:
-                        settings = load_filtered_decks_settings()
-                        if settings.get("auto_sync", False) and target_col:
+                        if target_col:
                             active_dids = get_active_edn_filtered_deck_ids(col=target_col)
                             if active_dids:
                                 for did in active_dids:
@@ -874,9 +1064,7 @@ def _install_ankicollab_pull_guard():
                     finally:
                         try:
                             if active_dids and target_col:
-                                settings = load_filtered_decks_settings()
-                                if settings.get("auto_sync", False):
-                                    rebuild_all_edn_filtered_decks(col=target_col, deck_ids=active_dids)
+                                rebuild_all_edn_filtered_decks(col=target_col, deck_ids=active_dids)
                         except Exception as e:
                             log_error(f"Erreur reconstruction après pull AnkiCollab: {e}")
                 im.handle_pull = wrapped_pull
@@ -886,20 +1074,69 @@ def _install_ankicollab_pull_guard():
         log_error(f"Erreur installation pull guard AnkiCollab: {e}")
 
 
+def setup_browser_filtered_deck_hooks():
+    """
+    Installe l'intercepteur à l'ouverture du navigateur :
+    Lorsqu'on ouvre le navigateur depuis un paquet filtré, inclut automatiquement
+    les cartes suspendues correspondantes à ce paquet/item/filtre.
+    """
+    def on_browser_will_show(browser):
+        try:
+            col = getattr(browser, "col", None)
+            if not col:
+                return
+            curr_did = col.decks.selected()
+            deck = col.decks.get(curr_did)
+            if not deck or not deck.get("dyn", False):
+                return
+
+            deck_name = deck.get("name", "")
+            terms = deck.get("terms", [])
+            if not terms or not terms[0] or not terms[0][0]:
+                return
+
+            terms_query = terms[0][0]
+            # Nettoyer les clauses temporelles/d'échéance (is:due, is:new)
+            base_query = re.sub(r'\(is:due\s+or\s+is:new\)|is:due|is:new', '', terms_query).strip()
+            base_query = " ".join(base_query.split())
+            if not base_query:
+                return
+
+            extended_query = f'deck:"{deck_name}" or ({base_query} is:suspended)'
+
+            orig_default_search = browser._default_search
+            def custom_default_search(card=None):
+                browser.search_for(extended_query, extended_query)
+                if card:
+                    try:
+                        browser.table.select_single_card(card.id)
+                    except Exception:
+                        pass
+            browser._default_search = custom_default_search
+        except Exception as e:
+            log_error(f"Erreur hook ouverture navigateur sur paquet filtré: {e}")
+
+    try:
+        gui_hooks.browser_will_show.append(on_browser_will_show)
+        log("Hook d'inclusion des cartes suspendues au navigateur installé.")
+    except Exception as e:
+        log_error(f"Erreur installation hook navigateur: {e}")
+
+
 _HOOKS_INSTALLED = False
 
 def init_filtered_decks():
-    """Initialise le module et installe les écouteurs de synchronisation."""
+    """Initialise le module et installe le garde-fou AnkiCollab et les hooks du navigateur."""
     global _HOOKS_INSTALLED
     if _HOOKS_INSTALLED:
         return
     
-    gui_hooks.sync_will_start.append(on_sync_will_start)
-    gui_hooks.sync_did_finish.append(on_sync_did_finish)
+    # Garde-fou AnkiCollab direct sur handle_pull (sans impacter la synchronisation normale AnkiWeb/mobile)
     _install_ankicollab_pull_guard()
     try:
         gui_hooks.main_window_did_init.append(_install_ankicollab_pull_guard)
     except Exception:
         pass
+    setup_browser_filtered_deck_hooks()
     _HOOKS_INSTALLED = True
-    log("Module Paquets Filtrés EDN initialisé (hooks de synchronisation actifs).")
+    log("Module Paquets Filtrés EDN initialisé (garde-fou AnkiCollab et navigateur actifs).")

@@ -544,7 +544,8 @@ def test_dialog_structure_and_no_stage(qapp):
 
     assert hasattr(dialog, "order_combo")
 
-    assert hasattr(dialog, "preset_info_label")
+    # Options de révision héritées retirées du haut pour alléger l'interface
+    assert not hasattr(dialog, "preset_info_label")
 
     assert dialog.tree_widget.isSortingEnabled() is True
 
@@ -1013,45 +1014,23 @@ def test_settings_persistence():
         "rank_filter": "B",
 
         "order": 1,
-
         "resched": False,
-
-        "auto_sync": False,
-
         "filter_only_selected": True,
-
         "selected_specs": ["Neurologie"],
-
         "selected_items": {"Neurologie": ["EDN::item-090-AVC"]},
-
         "fully_checked_specs": ["Neurologie"]
-
     }
 
-
-
     saved = save_filtered_decks_settings(custom_settings)
-
     assert saved is True
 
-
-
     loaded = load_filtered_decks_settings()
-
     assert loaded["threshold"] == 55
-
     assert loaded["scope"] == "item_complet"
-
     assert loaded["card_filter"] == "due_only"
-
     assert loaded["rank_filter"] == "B"
-
     assert loaded["order"] == 1
-
     assert loaded["resched"] is False
-
-    assert loaded["auto_sync"] is False
-
     assert loaded["filter_only_selected"] is True
 
     assert loaded["selected_specs"] == ["Neurologie"]
@@ -1099,11 +1078,7 @@ def test_dialog_rebuild_button_and_remember_settings(qapp):
         "rank_filter": "A",
 
         "order": 10,
-
         "resched": False,
-
-        "auto_sync": False,
-
         "filter_only_selected": True,
 
         "selected_specs": ["Cardiologie"],
@@ -1139,9 +1114,6 @@ def test_dialog_rebuild_button_and_remember_settings(qapp):
     assert dialog.order_combo.currentData() == 10
 
     assert dialog.resched_checkbox.isChecked() is False
-
-    assert dialog.auto_sync_checkbox.isChecked() is False
-
     assert dialog.filter_only_selected_cb.isChecked() is True
 
 
@@ -1575,14 +1547,173 @@ def test_sync_rebuilds_only_active_subdecks_and_preserves_emptied_ones(temp_anki
 
 
     # Apres synchro : seul did_to_keep a ete restaure ! did_to_empty reste vide !
-
     assert col.decks.card_count(did_to_keep, False) > 0
-
     assert col.decks.card_count(did_to_empty, False) == 0
 
+    delete_all_edn_filtered_decks(ROOT_DECK_NAME, col=col)
 
+
+def test_wheel_scroll_ignored_on_controls(qapp):
+    """Vérifie que la molette/trackpad n'altère pas les ComboBox et SpinBox."""
+    from aqt.qt import QWheelEvent, QPointF, QPoint, Qt
+    from Anki_EDN_Installer.filtered_decks_dialog import NoWheelComboBox, NoWheelSpinBox
+
+    cb = NoWheelComboBox()
+    cb.addItem("Item 0", 0)
+    cb.addItem("Item 1", 1)
+    cb.setCurrentIndex(0)
+
+    # Simuler un événement de molette / scroll trackpad
+    wheel_ev = QWheelEvent(
+        QPointF(10, 10), QPointF(10, 10),
+        QPoint(0, 0), QPoint(0, 120),
+        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase, False
+    )
+    qapp.sendEvent(cb, wheel_ev)
+    assert cb.currentIndex() == 0
+
+    sb = NoWheelSpinBox()
+    sb.setValue(40)
+    qapp.sendEvent(sb, wheel_ev)
+    assert sb.value() == 40
+
+
+def test_subtag_decks_and_generalites_no_card_lost(temp_anki_collection):
+    """Vérifie la création d'un sous-deck dépliable pour les items avec sous-tags sans perte de cartes."""
+    col = temp_anki_collection
+    m = col.models.by_name("Basic")
+    main_did = col.decks.add_normal_deck_with_name("Anki EDN").id
+
+    # 1. Note avec seulement le tag d'item (sans sous-tag)
+    n1 = col.new_note(m)
+    n1["Front"] = "Item sans sous-tag"
+    n1["Back"] = "R"
+    n1.tags.extend(["EDN::item-777-Test-subtags", "Cardiologie"])
+    col.add_note(n1, main_did)
+
+    # 2. Note avec sous-tag OAP
+    n2 = col.new_note(m)
+    n2["Front"] = "OAP"
+    n2["Back"] = "R"
+    n2.tags.extend(["EDN::item-777-Test-subtags::OAP", "Cardiologie"])
+    col.add_note(n2, main_did)
+
+    # 3. Note avec sous-tag Traitement
+    n3 = col.new_note(m)
+    n3["Front"] = "Traitement"
+    n3["Back"] = "R"
+    n3.tags.extend(["EDN::item-777-Test-subtags::Traitement", "Cardiologie"])
+    col.add_note(n3, main_did)
+
+    # Analyse
+    data = analyze_edn_curriculum(col=col, threshold_pct=10.0)
+    cardio_items = data["specialties"]["Cardiologie"]["items"]
+    matching = [i for i in cardio_items if i["tag"] == "EDN::item-777-Test-subtags"]
+    assert len(matching) == 1
+    it = matching[0]
+    assert it["has_subtags"] is True
+    sub_names = [s["name"] for s in it["subtags"]]
+    assert "Généralités" in sub_names
+    assert "OAP" in sub_names
+    assert "Traitement" in sub_names
+
+    # Génération
+    res = generate_filtered_hierarchy(
+        selected_specialties=["Cardiologie"],
+        curriculum_data=data,
+        options={"root_name": ROOT_DECK_NAME, "card_filter": "all"},
+        col=col,
+        selected_items={"Cardiologie": ["EDN::item-777-Test-subtags"]}
+    )
+    assert res["success"] is True
+
+    # Vérifier que le conteneur d'item est un paquet normal (non filtré)
+    item_container_did = col.decks.id_for_name(f"{ROOT_DECK_NAME}::Cardiologie::Item 777 - Test Subtags")
+    assert item_container_did is not None
+    assert col.decks.is_filtered(item_container_did) is False
+
+    # Vérifier les sous-paquets filtrés feuilles
+    gen_did = col.decks.id_for_name(f"{ROOT_DECK_NAME}::Cardiologie::Item 777 - Test Subtags::Généralités")
+    oap_did = col.decks.id_for_name(f"{ROOT_DECK_NAME}::Cardiologie::Item 777 - Test Subtags::OAP")
+    ttt_did = col.decks.id_for_name(f"{ROOT_DECK_NAME}::Cardiologie::Item 777 - Test Subtags::Traitement")
+
+    assert gen_did is not None and col.decks.is_filtered(gen_did) is True
+    assert oap_did is not None and col.decks.is_filtered(oap_did) is True
+    assert ttt_did is not None and col.decks.is_filtered(ttt_did) is True
+
+    # Vérifier que les cartes sont exactement réparties sans perte
+    assert col.decks.card_count(gen_did, False) == 1
+    assert col.decks.card_count(oap_did, False) == 1
+    assert col.decks.card_count(ttt_did, False) == 1
 
     delete_all_edn_filtered_decks(ROOT_DECK_NAME, col=col)
+
+
+def test_browser_catches_suspended_cards_on_filtered_deck(temp_anki_collection):
+    """Vérifie que l'extension de recherche inclut les cartes suspendues lors de l'ouverture du navigateur."""
+    import re
+    col = temp_anki_collection
+    m = col.models.by_name("Basic")
+    main_did = col.decks.add_normal_deck_with_name("Anki EDN").id
+
+    # Carte 1 active
+    n1 = col.new_note(m)
+    n1["Front"] = "Active"
+    n1["Back"] = "R"
+    n1.tags.extend(["EDN::item-888-Unique", "Cardiologie"])
+    col.add_note(n1, main_did)
+
+    # Carte 2 suspendue
+    n2 = col.new_note(m)
+    n2["Front"] = "Suspendue"
+    n2["Back"] = "R"
+    n2.tags.extend(["EDN::item-888-Unique", "Cardiologie"])
+    col.add_note(n2, main_did)
+    col.sched.suspend_cards([n2.cards()[0].id])
+
+    # Création paquet filtré
+    fd_name = f"{ROOT_DECK_NAME}::Cardiologie::Item 888 - Unique"
+    fd_did = col.decks.new_filtered(fd_name)
+    fdeck = col.decks.get(fd_did)
+    terms_q = 'deck:"Anki EDN" "tag:EDN::item-888-Unique*" tag:Cardiologie* (is:due or is:new)'
+    fdeck["terms"] = [[terms_q, 100, 0]]
+    col.decks.save(fdeck)
+    col.sched.rebuild_filtered_deck(fd_did)
+
+    # Recherche normale par deck: ne trouve que la carte active
+    normal_cards = col.find_cards(f'deck:"{fd_name}"')
+    assert len(normal_cards) == 1
+    assert n1.cards()[0].id in normal_cards
+    assert n2.cards()[0].id not in normal_cards
+
+    # Recherche étendue avec les cartes suspendues
+    base_q = re.sub(r'\(is:due\s+or\s+is:new\)|is:due|is:new', '', terms_q).strip()
+    extended_q = f'deck:"{fd_name}" or ({base_q} is:suspended)'
+    extended_cards = col.find_cards(extended_q)
+    assert len(extended_cards) == 2
+    assert n1.cards()[0].id in extended_cards
+    assert n2.cards()[0].id in extended_cards
+
+    delete_all_edn_filtered_decks(ROOT_DECK_NAME, col=col)
+
+
+def test_option_labels_and_choices(qapp):
+    """Vérifie le texte exact des options de filtrage et d'objectifs."""
+    from Anki_EDN_Installer.filtered_decks_dialog import FilteredDecksDialog
+
+    dialog = FilteredDecksDialog()
+
+    # Statut
+    status_texts = [dialog.status_combo.itemText(i) for i in range(dialog.status_combo.count())]
+    all_cards_text = [t for t in status_texts if "Toutes les cartes" in t][0]
+    assert "même celles dues dans longtemps" in all_cards_text
+
+    # Rang
+    rank_texts = [dialog.rank_combo.itemText(i) for i in range(dialog.rank_combo.count())]
+    assert "Toutes les cartes" in rank_texts
+    assert not any("Rang C" in t for t in rank_texts)
+    assert not any("A & B" in t for t in rank_texts)
 
 
 

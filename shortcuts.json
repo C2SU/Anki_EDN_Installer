@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Ficello/Anki-Customize-Keyboard-Shortcuts/main/schemas/shortcuts-v1.json",
+  "schema_version": 1,
+  "addon_name": "Anki EDN - Module Principal et Installateur",
+  "shortcuts": [
+    {
+      "id": "filtered_decks.generate",
+      "label": "Generateur de paquets filtres EDN",
+      "scope": "main",
+      "default": "Ctrl+Alt+F",
+      "fallbacks": ["Ctrl+Shift+F", "F6"],
+      "config_key": "filtered_decks_generate"
+    },
+    {
+      "id": "filtered_decks.rebuild",
+      "label": "Regenerer tous les paquets filtres EDN",
+      "scope": "main",
+      "default": "Ctrl+Alt+R",
+      "fallbacks": ["Ctrl+Shift+R", "F5"],
+      "config_key": "filtered_decks_rebuild"
+    },
+    {
+      "id": "filtered_decks.empty",
+      "label": "Vider tous les paquets filtres EDN",
+      "scope": "main",
+      "default": "Ctrl+Alt+E",
+      "fallbacks": ["Ctrl+Shift+E", "Shift+F5"],
+      "config_key": "filtered_decks_empty"
+    },
+    {
+      "id": "quick_tagger.reviewer",
+      "label": "Ajouter une etiquette a la volee (Revision)",
+      "scope": "reviewer",
+      "default": "T",
+      "fallbacks": ["Shift+T", "Ctrl+T", "Alt+T"],
+      "config_key": "quick_tagger_reviewer"
+    }
+  ]
+}

@@ -26,13 +26,16 @@ from .logger import log, log_error
 
 
 class CurriculumTreeWidgetItem(QTreeWidgetItem):
-    """Élément d'arborescence pour spécialités et items qualifiés avec tri naturel."""
+    """Élément d'arborescence pour spécialités, items qualifiés et sous-parties avec tri naturel."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.is_specialty: bool = True
+        self.is_subtag: bool = False
+        self.has_subtags: bool = False
         self.item_tag: str = ""
         self.spec_cards: int = 0
+        self.subtag_data: Optional[Dict[str, Any]] = None
 
     def __lt__(self, other: "QTreeWidgetItem") -> bool:
         tree = self.treeWidget()
@@ -45,6 +48,20 @@ class CurriculumTreeWidgetItem(QTreeWidgetItem):
             except TypeError:
                 pass
         return super().__lt__(other)
+
+
+class NoWheelComboBox(QComboBox):
+    """QComboBox ignorant la molette pour éviter les déréglages accidentels au trackpad."""
+
+    def wheelEvent(self, event: QWheelEvent):
+        event.ignore()
+
+
+class NoWheelSpinBox(QSpinBox):
+    """QSpinBox ignorant la molette pour éviter les déréglages accidentels au trackpad."""
+
+    def wheelEvent(self, event: QWheelEvent):
+        event.ignore()
 
 
 
@@ -75,6 +92,9 @@ def get_theme_colors(is_dark: bool) -> dict:
             "pill_bg": "#253346",
             "pill_text": "#58a6ff",
             "pill_border": "#314563",
+            "tooltip_bg": "#0f172a",
+            "tooltip_text": "#f8fafc",
+            "tooltip_border": "#334155",
         }
     else:
         return {
@@ -101,6 +121,9 @@ def get_theme_colors(is_dark: bool) -> dict:
             "pill_bg": "#f0f7ff",
             "pill_text": "#0969da",
             "pill_border": "#bae6fd",
+            "tooltip_bg": "#feffc4",
+            "tooltip_text": "#000000",
+            "tooltip_border": "#cbd5e1",
         }
 
 
@@ -262,6 +285,14 @@ def build_dialog_stylesheet(c: dict) -> str:
         background-color: {c['accent']};
         border-radius: 5px;
     }}
+    QToolTip, CustomLabel, QLabel[customTooltip="true"] {{
+        background-color: {c['tooltip_bg']};
+        color: {c['tooltip_text']};
+        border: 1px solid {c['tooltip_border']};
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 12px;
+    }}
     """
 
 
@@ -319,11 +350,6 @@ class FilteredDecksDialog(QDialog):
                 self.title_label.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {c['accent']};")
             if hasattr(self, "desc_label"):
                 self.desc_label.setStyleSheet(f"color: {c['text_secondary']}; font-size: 12px; line-height: 1.4;")
-            if hasattr(self, "preset_info_label"):
-                self.preset_info_label.setStyleSheet(
-                    f"background: {c['pill_bg']}; color: {c['pill_text']}; border: 1px solid {c['pill_border']}; "
-                    f"border-radius: 4px; padding: 4px 8px; font-size: 11.5px; font-weight: 600;"
-                )
             if hasattr(self, "summary_label"):
                 self.summary_label.setStyleSheet(f"color: {c['text_secondary']}; font-weight: 500; font-size: 12px; padding: 2px 0;")
         finally:
@@ -349,9 +375,6 @@ class FilteredDecksDialog(QDialog):
         self.title_label = QLabel("Générateur de Paquets Filtrés - Anki EDN")
         header_top_row.addWidget(self.title_label)
         header_top_row.addStretch()
-        
-        self.preset_info_label = QLabel()
-        header_top_row.addWidget(self.preset_info_label)
         header_layout.addLayout(header_top_row)
 
         self.desc_label = QLabel(
@@ -414,7 +437,7 @@ class FilteredDecksDialog(QDialog):
 
         threshold_label = QLabel("Seuil d'attribution :")
         action_bar.addWidget(threshold_label)
-        self.threshold_spin = QSpinBox()
+        self.threshold_spin = NoWheelSpinBox()
         self.threshold_spin.setRange(10, 90)
         self.threshold_spin.setSuffix(" %")
         self.threshold_spin.setValue(40)
@@ -423,7 +446,7 @@ class FilteredDecksDialog(QDialog):
 
         tree_layout.addLayout(action_bar)
 
-        # Arborescence hiérarchique (Discipline -> Items)
+        # Arborescence hiérarchique (Discipline -> Items -> Sous-parties)
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabels(["Discipline / Item qualifié", "Items / Qualification", "Cartes estimées"])
         self.tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -468,20 +491,20 @@ class FilteredDecksDialog(QDialog):
         status_label.setStyleSheet("font-weight: 600;")
         options_layout.addWidget(status_label, 1, 0)
 
-        self.status_combo = QComboBox()
+        self.status_combo = NoWheelComboBox()
         self.status_combo.addItem("Cartes à faire aujourd'hui : Dues + Bleues/Nouvelles (Recommandé)", "due_and_new")
-        self.status_combo.addItem("Toutes les cartes (Bleues + Révisions, sans restriction)", "all")
+        self.status_combo.addItem("Toutes les cartes (même celles dues dans longtemps, sans restriction)", "all")
         self.status_combo.addItem("Uniquement les révisions du jour (Dues)", "due_only")
         self.status_combo.addItem("Uniquement les nouvelles cartes (Bleues)", "new_only")
         options_layout.addWidget(self.status_combo, 1, 1)
 
-        # Rangs A / B
+        # Rangs A / B / C / sans rang
         rank_label = QLabel("Objectifs de connaissances :")
         rank_label.setStyleSheet("font-weight: 600;")
         options_layout.addWidget(rank_label, 2, 0)
 
-        self.rank_combo = QComboBox()
-        self.rank_combo.addItem("Toutes les cartes (Rang A et Rang B)", "all")
+        self.rank_combo = NoWheelComboBox()
+        self.rank_combo.addItem("Toutes les cartes", "all")
         self.rank_combo.addItem("Rang A uniquement (Connaissances indispensables)", "A")
         self.rank_combo.addItem("Rang B uniquement (Connaissances approfondies)", "B")
         options_layout.addWidget(self.rank_combo, 2, 1)
@@ -491,7 +514,7 @@ class FilteredDecksDialog(QDialog):
         order_label.setStyleSheet("font-weight: 600;")
         options_layout.addWidget(order_label, 3, 0)
 
-        self.order_combo = QComboBox()
+        self.order_combo = NoWheelComboBox()
         self.order_combo.addItem("Hériter du deck EDN principal (Recommandé)", "inherit")
         self.order_combo.addItem("Ordre d'échéance (Cartes dues en premier)", 6)
         self.order_combo.addItem("Ordre d'ajout (Chronologique / Date de création)", 5)
@@ -502,17 +525,13 @@ class FilteredDecksDialog(QDialog):
         self.order_combo.addItem("Intervalles décroissants", 3)
         options_layout.addWidget(self.order_combo, 3, 1)
 
-        # Cases à cocher FSRS et Vidage synchro
+        # Cases à cocher FSRS
         extra_checks_layout = QHBoxLayout()
         extra_checks_layout.setSpacing(20)
 
         self.resched_checkbox = QCheckBox("Rééchelonner selon les réponses (FSRS actif)")
         self.resched_checkbox.setChecked(True)
         extra_checks_layout.addWidget(self.resched_checkbox)
-
-        self.auto_sync_checkbox = QCheckBox("Protection AnkiCollab (Vidage automatique avant synchronisation)")
-        self.auto_sync_checkbox.setChecked(False)
-        extra_checks_layout.addWidget(self.auto_sync_checkbox)
         extra_checks_layout.addStretch()
 
         options_layout.addLayout(extra_checks_layout, 4, 0, 1, 2)
@@ -604,11 +623,6 @@ class FilteredDecksDialog(QDialog):
         if resched is not None:
             self.resched_checkbox.setChecked(bool(resched))
 
-        # Protection AnkiCollab
-        auto_sync = self.saved_settings.get("auto_sync")
-        if auto_sync is not None:
-            self.auto_sync_checkbox.setChecked(bool(auto_sync))
-
         # Filtre sélection uniquement
         filter_selected = self.saved_settings.get("filter_only_selected")
         if filter_selected is not None:
@@ -616,25 +630,10 @@ class FilteredDecksDialog(QDialog):
 
     def load_data(self):
         """Charge l'analyse du curriculum EDN et construit l'arborescence."""
-        # Détection et affichage des options héritées du deck principal EDN
         try:
-            _, edn_conf_id, edn_conf = get_edn_deck_and_config()
-            if edn_conf:
-                preset_name = edn_conf.get("name", "Par défaut")
-                retention_str = ""
-                if "desiredRetention" in edn_conf:
-                    retention_pct = int(edn_conf["desiredRetention"] * 100)
-                    retention_str = f" • FSRS Rétention {retention_pct}%"
-                rev_limit = edn_conf.get("rev", {}).get("perDay", 9999)
-                self.preset_info_label.setText(
-                    f"Options de révision héritées : Preset '{preset_name}'{retention_str} • Rév/jour : {rev_limit}"
-                )
-            else:
-                self.preset_info_label.setText("Options de révision : Configuration par défaut")
-            # Harmonisation proactive si des paquets conteneurs existent déjà
             sync_hierarchy_deck_options()
         except Exception as e:
-            log_error(f"Erreur chargement options EDN: {e}")
+            log_error(f"Erreur harmonisation options EDN: {e}")
 
         # Sauvegarde des sélections actuelles pour restauration si changement de seuil
         prev_specs, prev_items = self.get_selected_data() if self.specialty_items else ([], {})
@@ -687,12 +686,20 @@ class FilteredDecksDialog(QDialog):
                     child.is_specialty = False
                     child.item_tag = it["tag"]
                     child.spec_cards = it["spec_cards"]
+                    child.has_subtags = it.get("has_subtags", False)
                     child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                     child.setCheckState(0, Qt.CheckState.Unchecked)
                     child.setText(0, it["label"])
                     child.setData(0, Qt.ItemDataRole.UserRole, (it["item_num"], it["label"]))
-                    child.setText(1, f"{it['pct']:.0f} %")
-                    child.setData(1, Qt.ItemDataRole.UserRole, it["pct"])
+
+                    if child.has_subtags:
+                        sub_count = len(it.get("subtags", []))
+                        child.setText(1, f"{sub_count} sous-parties")
+                        child.setData(1, Qt.ItemDataRole.UserRole, sub_count)
+                    else:
+                        child.setText(1, f"{it['pct']:.0f} %")
+                        child.setData(1, Qt.ItemDataRole.UserRole, it["pct"])
+
                     child.setText(2, f"{it['spec_cards']} cartes")
                     child.setData(2, Qt.ItemDataRole.UserRole, it["spec_cards"])
 
@@ -701,35 +708,59 @@ class FilteredDecksDialog(QDialog):
                     child.setForeground(1, QColor("#a6adc8"))
                     child.setForeground(2, QColor("#a6adc8"))
 
+                    if child.has_subtags:
+                        for sub in it.get("subtags", []):
+                            sub_child = CurriculumTreeWidgetItem(child)
+                            sub_child.is_specialty = False
+                            sub_child.is_subtag = True
+                            sub_child.item_tag = it["tag"]
+                            sub_child.subtag_data = sub
+                            sub_child.spec_cards = sub["spec_cards"]
+                            sub_child.setFlags(sub_child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                            sub_child.setCheckState(0, Qt.CheckState.Unchecked)
+                            sub_child.setText(0, sub["name"])
+                            sub_child.setData(0, Qt.ItemDataRole.UserRole, (it["item_num"], sub["name"]))
+                            sub_child.setText(1, "Sous-paquet")
+                            sub_child.setData(1, Qt.ItemDataRole.UserRole, 0)
+                            sub_child.setText(2, f"{sub['spec_cards']} cartes")
+                            sub_child.setData(2, Qt.ItemDataRole.UserRole, sub["spec_cards"])
+
+                            sub_child.setForeground(0, QColor("#8993a4"))
+                            sub_child.setForeground(1, QColor("#8993a4"))
+                            sub_child.setForeground(2, QColor("#8993a4"))
+
                 self.specialty_items[sp] = parent
 
             # Restauration des sélections si présentes
             if prev_items or fully_checked_set:
-                for sp, target_tags in prev_items.items():
+                for sp, target_entries in prev_items.items():
                     if sp in self.specialty_items:
                         parent = self.specialty_items[sp]
-                        target_set = set(target_tags) if target_tags else set()
+                        target_set = set(target_entries) if target_entries else set()
                         is_fully = (sp in fully_checked_set)
-                        checked_count = 0
-                        total_count = parent.childCount()
-                        for i in range(total_count):
+                        for i in range(parent.childCount()):
                             child = parent.child(i)
-                            if is_fully or (child.item_tag in target_set):
+                            b_tag = getattr(child, "item_tag", "")
+                            has_sub = getattr(child, "has_subtags", False)
+                            if is_fully or (b_tag in target_set):
                                 child.setCheckState(0, Qt.CheckState.Checked)
-                                checked_count += 1
-                        if checked_count == total_count and total_count > 0:
-                            parent.setCheckState(0, Qt.CheckState.Checked)
-                        elif checked_count > 0:
-                            parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
+                                self._set_check_state_down(child, Qt.CheckState.Checked)
+                            elif has_sub:
+                                for j in range(child.childCount()):
+                                    sub_child = child.child(j)
+                                    s_name = sub_child.subtag_data.get("name") if sub_child.subtag_data else ""
+                                    if f"{b_tag}::{s_name}" in target_set or s_name in target_set:
+                                        sub_child.setCheckState(0, Qt.CheckState.Checked)
+                                self._update_check_state_up(child)
 
                 for sp in fully_checked_set:
                     if sp in self.specialty_items and sp not in prev_items:
                         parent = self.specialty_items[sp]
-                        total_count = parent.childCount()
-                        for i in range(total_count):
-                            parent.child(i).setCheckState(0, Qt.CheckState.Checked)
-                        if total_count > 0:
-                            parent.setCheckState(0, Qt.CheckState.Checked)
+                        parent.setCheckState(0, Qt.CheckState.Checked)
+                        self._set_check_state_down(parent, Qt.CheckState.Checked)
+
+                for parent in self.specialty_items.values():
+                    self._update_check_state_up(parent)
 
         finally:
             self._updating_checks = False
@@ -740,34 +771,41 @@ class FilteredDecksDialog(QDialog):
         self.update_selection_summary()
         self.apply_filter()
 
+    def _set_check_state_down(self, item: QTreeWidgetItem, state: Qt.CheckState):
+        """Propage récursivement l'état des cases à cocher vers tous les descendants."""
+        for i in range(item.childCount()):
+            child = item.child(i)
+            child.setCheckState(0, state)
+            self._set_check_state_down(child, state)
+
+    def _update_check_state_up(self, parent: Optional[QTreeWidgetItem]):
+        """Met à jour récursivement l'état des cases à cocher vers tous les ancêtres."""
+        if not parent:
+            return
+        total = parent.childCount()
+        if total == 0:
+            return
+        checked_cnt = sum(1 for i in range(total) if parent.child(i).checkState(0) == Qt.CheckState.Checked)
+        partial_cnt = sum(1 for i in range(total) if parent.child(i).checkState(0) == Qt.CheckState.PartiallyChecked)
+        if checked_cnt == total:
+            parent.setCheckState(0, Qt.CheckState.Checked)
+        elif checked_cnt > 0 or partial_cnt > 0:
+            parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
+        else:
+            parent.setCheckState(0, Qt.CheckState.Unchecked)
+        self._update_check_state_up(parent.parent())
+
     def on_item_changed(self, item: QTreeWidgetItem, column: int):
-        """Synchronise l'état des cases à cocher entre disciplines et items."""
+        """Synchronise l'état des cases à cocher de façon récursive (parent <-> enfants <-> sous-parties)."""
         if column != 0 or self._updating_checks:
             return
 
         self._updating_checks = True
         try:
-            parent = item.parent()
-            if parent is None:
-                # Modification au niveau d'une discipline parente
-                state = item.checkState(0)
-                if state in (Qt.CheckState.Checked, Qt.CheckState.Unchecked):
-                    for i in range(item.childCount()):
-                        item.child(i).setCheckState(0, state)
-            else:
-                # Modification au niveau d'un item enfant
-                checked_count = 0
-                total = parent.childCount()
-                for i in range(total):
-                    if parent.child(i).checkState(0) == Qt.CheckState.Checked:
-                        checked_count += 1
-
-                if checked_count == 0:
-                    parent.setCheckState(0, Qt.CheckState.Unchecked)
-                elif checked_count == total:
-                    parent.setCheckState(0, Qt.CheckState.Checked)
-                else:
-                    parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
+            state = item.checkState(0)
+            if state in (Qt.CheckState.Checked, Qt.CheckState.Unchecked):
+                self._set_check_state_down(item, state)
+            self._update_check_state_up(item.parent())
         finally:
             self._updating_checks = False
 
@@ -776,27 +814,24 @@ class FilteredDecksDialog(QDialog):
             self.apply_filter()
 
     def on_check_all_clicked(self):
-        """Coche toutes les disciplines visibles et leurs items."""
+        """Coche toutes les disciplines visibles et leurs éléments."""
         self._updating_checks = True
         try:
             for parent in self.specialty_items.values():
                 if not parent.isHidden():
                     parent.setCheckState(0, Qt.CheckState.Checked)
-                    for i in range(parent.childCount()):
-                        if not parent.child(i).isHidden():
-                            parent.child(i).setCheckState(0, Qt.CheckState.Checked)
+                    self._set_check_state_down(parent, Qt.CheckState.Checked)
         finally:
             self._updating_checks = False
         self.update_selection_summary()
 
     def on_uncheck_all_clicked(self):
-        """Décoche l'intégralité des disciplines et items."""
+        """Décoche l'intégralité des disciplines et éléments."""
         self._updating_checks = True
         try:
             for parent in self.specialty_items.values():
                 parent.setCheckState(0, Qt.CheckState.Unchecked)
-                for i in range(parent.childCount()):
-                    parent.child(i).setCheckState(0, Qt.CheckState.Unchecked)
+                self._set_check_state_down(parent, Qt.CheckState.Unchecked)
         finally:
             self._updating_checks = False
         self.update_selection_summary()
@@ -833,16 +868,36 @@ class FilteredDecksDialog(QDialog):
                 child = parent.child(i)
                 child_text_norm = normalize_tag_key(child.text(0))
                 child_matches = (not query) or (query in child_text_norm)
+                child_checked = child.checkState(0) in (Qt.CheckState.Checked, Qt.CheckState.PartiallyChecked)
 
-                if only_selected:
-                    child_checked = (child.checkState(0) == Qt.CheckState.Checked)
-                    child_visible = child_checked and (parent_matches or child_matches)
+                sub_matches_count = 0
+                if getattr(child, "has_subtags", False):
+                    for j in range(child.childCount()):
+                        sub_child = child.child(j)
+                        sub_norm = normalize_tag_key(sub_child.text(0))
+                        sub_matches = (not query) or parent_matches or child_matches or (query in sub_norm)
+                        sub_chk = (sub_child.checkState(0) == Qt.CheckState.Checked)
+                        if only_selected:
+                            sub_visible = sub_chk and sub_matches
+                        else:
+                            sub_visible = sub_matches
+                        sub_child.setHidden(not sub_visible)
+                        if sub_visible:
+                            sub_matches_count += 1
+
+                if getattr(child, "has_subtags", False):
+                    child_visible = (sub_matches_count > 0)
                 else:
-                    child_visible = parent_matches or child_matches
+                    if only_selected:
+                        child_visible = child_checked and (parent_matches or child_matches)
+                    else:
+                        child_visible = parent_matches or child_matches
 
                 child.setHidden(not child_visible)
-                if child_visible and (query and child_matches):
+                if child_visible:
                     matching_children += 1
+                    if query and not parent_matches:
+                        child.setExpanded(True)
 
             if not query:
                 parent.setHidden(False)
@@ -870,16 +925,23 @@ class FilteredDecksDialog(QDialog):
                 selected_specs_count += 1
                 for i in range(parent.childCount()):
                     child = parent.child(i)
-                    if child.checkState(0) == Qt.CheckState.Checked:
-                        total_items += 1
-                        total_cards += getattr(child, "spec_cards", 0)
+                    if getattr(child, "has_subtags", False):
+                        for j in range(child.childCount()):
+                            sub_child = child.child(j)
+                            if sub_child.checkState(0) == Qt.CheckState.Checked:
+                                total_items += 1
+                                total_cards += getattr(sub_child, "spec_cards", 0)
+                    else:
+                        if child.checkState(0) == Qt.CheckState.Checked:
+                            total_items += 1
+                            total_cards += getattr(child, "spec_cards", 0)
 
         if selected_specs_count == 0:
             self.summary_label.setText("Aucune discipline sélectionnée")
             self.summary_label.setStyleSheet("color: #a6adc8; font-weight: 500; font-size: 12px;")
         else:
             disc_str = f"{selected_specs_count} discipline{'s' if selected_specs_count > 1 else ''}"
-            items_str = f"{total_items} item{'s' if total_items > 1 else ''}"
+            items_str = f"{total_items} item{'s' if total_items > 1 else ''}/paquet{'s' if total_items > 1 else ''}"
             cards_str = f"{total_cards} carte{'s' if total_cards > 1 else ''} estimée{'s' if total_cards > 1 else ''}"
             self.summary_label.setText(f"Sélection : {disc_str} • {items_str} • {cards_str}")
             self.summary_label.setStyleSheet("color: #89b4fa; font-weight: 600; font-size: 12px;")
@@ -896,10 +958,21 @@ class FilteredDecksDialog(QDialog):
                 checked_tags = []
                 for i in range(parent.childCount()):
                     child = parent.child(i)
-                    if child.checkState(0) == Qt.CheckState.Checked:
-                        tag = getattr(child, "item_tag", "")
-                        if tag:
-                            checked_tags.append(tag)
+                    b_tag = getattr(child, "item_tag", "")
+                    has_sub = getattr(child, "has_subtags", False)
+                    if not has_sub:
+                        if child.checkState(0) == Qt.CheckState.Checked and b_tag:
+                            checked_tags.append(b_tag)
+                    else:
+                        if child.checkState(0) == Qt.CheckState.Checked and b_tag:
+                            checked_tags.append(b_tag)
+                        elif child.checkState(0) == Qt.CheckState.PartiallyChecked and b_tag:
+                            for j in range(child.childCount()):
+                                sub_child = child.child(j)
+                                if sub_child.checkState(0) == Qt.CheckState.Checked:
+                                    s_name = sub_child.subtag_data.get("name") if sub_child.subtag_data else ""
+                                    if s_name:
+                                        checked_tags.append(f"{b_tag}::{s_name}")
                 selected_items[sp] = checked_tags
 
         return selected_specs, selected_items
@@ -921,7 +994,6 @@ class FilteredDecksDialog(QDialog):
         rank_filter = self.rank_combo.currentData() or "all"
         order_val = self.order_combo.currentData() or "inherit"
         resched = self.resched_checkbox.isChecked()
-        auto_sync = self.auto_sync_checkbox.isChecked()
         filter_selected = self.filter_only_selected_cb.isChecked()
         threshold = self.threshold_spin.value()
 
@@ -935,7 +1007,6 @@ class FilteredDecksDialog(QDialog):
             "rank_filter": rank_filter,
             "order": order_val,
             "resched": resched,
-            "auto_sync": auto_sync,
             "filter_only_selected": filter_selected
         }
 

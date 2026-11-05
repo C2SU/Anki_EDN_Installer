@@ -257,91 +257,61 @@ def open_setup_assistant_dialog(parent=None, is_startup: bool = False) -> None:
 
 
 def _ensure_standard_menu_actions(menu) -> None:
-
-    """Ensure standard EDN management actions (Guide, Setup Assistant, Settings) exist idempotently."""
-
+    """Ensure standard EDN management actions (Setup Assistant, Settings) exist idempotently."""
     if not menu:
-
         return
 
-
-
-    # Clean up obsolete direct protection actions (protection is configured exclusively in Settings)
-
+    # Clean up obsolete guide, symbols importer, quick tagger and direct protection actions
     for act in list(menu.actions()):
-
-        if act.objectName() in ("EDN_Protect_Action", "EDN_Manual_Protect_Action") or (
-
-            act.text() and "Prot" in act.text() and "champ" in act.text().lower()
-
+        txt = act.text() or ""
+        obj = act.objectName() or ""
+        if (
+            obj in ("EDN_Guide_Action", "EDN_Protect_Action", "EDN_Manual_Protect_Action")
+            or "Guide" in txt
+            or ("Prot" in txt and "champ" in txt.lower())
+            or "Importer les symboles" in txt
+            or "étiquette à la volée" in txt.lower()
+            or "etiquette a la volee" in txt.lower()
         ):
-
             menu.removeAction(act)
-
             try:
-
                 act.deleteLater()
-
             except Exception:
-
                 pass
 
-
+    if mw:
+        for act in list(mw.actions()):
+            obj = act.objectName() or ""
+            txt = act.text() or ""
+            if (
+                obj.startswith("EDN_ShortcutOnly_quick_tagger")
+                or "étiquette à la volée" in txt.lower()
+                or "etiquette a la volee" in txt.lower()
+            ):
+                mw.removeAction(act)
+                try:
+                    act.deleteLater()
+                except Exception:
+                    pass
 
     action_map = {act.objectName(): act for act in menu.actions() if act.objectName()}
 
-
-
-    # 1. Guide d'installation EDN...
-
-    if "EDN_Guide_Action" not in action_map:
-
-        guide_action = QAction("Guide d'installation EDN...", mw)
-
-        guide_action.setObjectName("EDN_Guide_Action")
-
-        guide_action.setMenuRole(QAction.MenuRole.NoRole)
-
-        guide_action.triggered.connect(lambda: show_onboarding_guide(mw))
-
-        menu.addAction(guide_action)
-
-
-
-    # 2. Rétablir les réglages du tuto...
-
+    # 1. Rétablir les réglages du tuto...
     if "EDN_Tuto_Settings_Action" not in action_map:
-
         tuto_action = QAction("Rétablir les réglages du tuto...", mw)
-
         tuto_action.setObjectName("EDN_Tuto_Settings_Action")
-
         tuto_action.setMenuRole(QAction.MenuRole.NoRole)
-
         tuto_action.triggered.connect(lambda: open_setup_assistant_dialog(mw))
-
         menu.addAction(tuto_action)
 
-
-
-    # 3. Paramètres EDN...
-
+    # 2. Paramètres EDN...
     if "EDN_Settings_Action" not in action_map:
-
         menu.addSeparator()
-
         settings_action = QAction("Paramètres EDN...", mw)
-
         settings_action.setObjectName("EDN_Settings_Action")
-
         settings_action.setMenuRole(QAction.MenuRole.NoRole)
-
         settings_action.triggered.connect(open_settings_dialog)
-
         menu.addAction(settings_action)
-
-
-
 
 
 def get_edn_tools_menu():
@@ -423,40 +393,23 @@ def get_edn_menu():
     if _edn_menu is not None:
 
         standard_labels = {
-
             "Paramètres EDN...",
-
-            "Guide d'installation EDN...",
-
             "Rétablir les réglages du tuto..."
-
         }
 
         seen_texts = set()
-
         for act in list(_edn_menu.actions()):
-
             txt = act.text()
-
             if not txt or act.isSeparator() or txt in standard_labels:
-
                 continue
-
-            if txt in seen_texts:
-
+            if txt in seen_texts or any(k in txt for k in ["Guide d'installation", "Importer les symboles", "étiquette à la volée", "etiquette a la volee"]):
                 _edn_menu.removeAction(act)
-
                 try:
-
                     act.deleteLater()
-
                 except Exception:
-
                     pass
-
-            else:
-
-                seen_texts.add(txt)
+                continue
+            seen_texts.add(txt)
 
     
 
@@ -518,7 +471,9 @@ def should_initialize_module(module_id: str) -> bool:
 
 def register_action(module_id: str, label: str, callback: Callable, 
 
-                   shortcut: Optional[str] = None, icon: Optional[str] = None):
+                   shortcut: Optional[str] = None, icon: Optional[str] = None,
+
+                   shortcut_key: Optional[str] = None):
 
     """Register a menu action for a module idempotently."""
 
@@ -528,13 +483,47 @@ def register_action(module_id: str, label: str, callback: Callable,
 
     
 
+    action_key = shortcut_key or f"{module_id}_{label}"
+
+    registry = _get_registry()
+
+    if module_id in registry:
+
+        found_act = False
+
+        for act_info in registry[module_id]["actions"]:
+
+            if act_info.get("label") == label:
+
+                act_info["shortcut"] = shortcut
+
+                act_info["shortcut_key"] = action_key
+
+                found_act = True
+
+                break
+
+        if not found_act:
+
+            registry[module_id]["actions"].append({
+
+                "label": label,
+
+                "shortcut": shortcut,
+
+                "shortcut_key": action_key,
+
+                "action": None
+
+            })
+
+
+
     menu = get_edn_menu()
 
     if not menu:
 
         return None
-
-
 
     action_obj_name = f"EDN_Action_{module_id}_{label}"
 
@@ -558,7 +547,7 @@ def register_action(module_id: str, label: str, callback: Callable,
 
                 try:
 
-                    custom_shortcut = get_shortcut(f"{module_id}_{label}", shortcut)
+                    custom_shortcut = get_shortcut(action_key, shortcut)
 
                     existing_action.setShortcut(QKeySequence(custom_shortcut))
 
@@ -574,7 +563,9 @@ def register_action(module_id: str, label: str, callback: Callable,
 
     # Create action
 
-    action = QAction(label, mw)
+    parent_w = mw if isinstance(mw, QObject) else None
+
+    action = QAction(label, parent_w)
 
     action.setObjectName(action_obj_name)
 
@@ -586,7 +577,7 @@ def register_action(module_id: str, label: str, callback: Callable,
 
         try:
 
-            custom_shortcut = get_shortcut(f"{module_id}_{label}", shortcut)
+            custom_shortcut = get_shortcut(action_key, shortcut)
 
             action.setShortcut(QKeySequence(custom_shortcut))
 
@@ -602,7 +593,7 @@ def register_action(module_id: str, label: str, callback: Callable,
 
     actions = menu.actions()
 
-    standard_ids = {"EDN_Guide_Action", "EDN_Tuto_Settings_Action", "EDN_Settings_Action"}
+    standard_ids = {"EDN_Tuto_Settings_Action", "EDN_Settings_Action"}
 
     insert_before = None
 
@@ -647,6 +638,8 @@ def register_action(module_id: str, label: str, callback: Callable,
             "label": label,
 
             "shortcut": shortcut,
+
+            "shortcut_key": action_key,
 
             "action": action
 
@@ -906,16 +899,37 @@ def set_module_enabled(module_id: str, enabled: bool):
 
 
 def get_shortcut(module_id: str, default: str) -> str:
-
-    """Get custom shortcut or default."""
-
+    """Get custom shortcut or default, with ShortcutBroker arbitration if available."""
     config = get_config()
-
     shortcuts = config.get("shortcuts", {})
+    if module_id in shortcuts:
+        return shortcuts[module_id]
 
-    return shortcuts.get(module_id, default)
+    broker = getattr(mw, "shortcut_broker", None)
+    if broker and hasattr(broker, "claim"):
+        try:
+            m_lower = module_id.lower()
+            if "reviewer" in m_lower or "kbd" in m_lower or "liens" in m_lower or "tagger" in m_lower:
+                scope = "reviewer"
+            elif "browser" in m_lower or "copy" in m_lower:
+                scope = "browser"
+            elif "editor" in m_lower:
+                scope = "editor"
+            else:
+                scope = "main"
 
+            return broker.claim(
+                action_id=f"edn_{module_id}",
+                label=module_id,
+                scope=scope,
+                preferred=[default],
+                addon_id="anki_edn",
+                addon_name="Anki EDN"
+            )
+        except Exception:
+            pass
 
+    return default
 
 def set_shortcut(module_id: str, shortcut: str):
 

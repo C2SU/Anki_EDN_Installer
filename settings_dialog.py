@@ -64,6 +64,20 @@ except ImportError:
 
 
 
+try:
+    from .fsrs import get_last_fsrs_optimization_timestamp, format_timestamp, record_optimization
+    from .symbols_importer import import_edn_symbols
+except ImportError:
+    try:
+        from fsrs import get_last_fsrs_optimization_timestamp, format_timestamp, record_optimization
+        from symbols_importer import import_edn_symbols
+    except ImportError:
+        get_last_fsrs_optimization_timestamp = lambda: None
+        format_timestamp = lambda ts: "Aucune date enregistree"
+        record_optimization = lambda was_optimal=False: None
+        import_edn_symbols = lambda force=False: (True, "OK", 0)
+
+
 # ── Addon catalog definition (Sans emojis) ──
 
 RECOMMENDED_ADDONS_CATALOG = [
@@ -542,11 +556,11 @@ def get_theme_colors() -> dict:
 
             "scrollbar_thumb_hover": "#94a3b8",
 
-            "tooltip_bg": "#0f172a",
+            "tooltip_bg": "#feffc4",
 
-            "tooltip_text": "#f8fafc",
+            "tooltip_text": "#000000",
 
-            "tooltip_border": "#334155",
+            "tooltip_border": "#cbd5e1",
 
         }
 
@@ -934,7 +948,7 @@ class EDNSettingsDialog(QDialog):
 
             }}
 
-            QToolTip {{
+            QToolTip, CustomLabel, QLabel[customTooltip="true"] {{
 
                 background-color: {T["tooltip_bg"]};
 
@@ -1103,46 +1117,6 @@ class EDNSettingsDialog(QDialog):
         reset_defaults_btn.clicked.connect(self.reset_to_defaults)
 
         button_layout.addWidget(reset_defaults_btn)
-
-
-
-        tuto_defaults_btn = QPushButton("Rétablir les réglages du tuto")
-
-        tuto_defaults_btn.setStyleSheet(f"""
-
-            QPushButton {{
-
-                background-color: {T["btn_default_bg"]};
-
-                color: {T["btn_default_text"]};
-
-                border: 1px solid {T["btn_default_border"]};
-
-                padding: 8px 16px;
-
-                border-radius: 6px;
-
-                font-weight: 600;
-
-                font-size: 12px;
-
-            }}
-
-            QPushButton:hover {{
-
-                background-color: {T["btn_default_hover"]};
-
-                color: {T["text_main"]};
-
-            }}
-
-        """)
-
-        tuto_defaults_btn.clicked.connect(lambda: open_setup_assistant_dialog(parent=self))
-
-        button_layout.addWidget(tuto_defaults_btn)
-
-
 
         button_layout.addStretch()
 
@@ -1369,6 +1343,31 @@ class EDNSettingsDialog(QDialog):
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         card_layout.addWidget(badge)
+
+        if item.get("id") == "2040501954":
+            import_btn = QPushButton("Importer symboles")
+            import_btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-size: 11px;
+                    padding: 2px 7px;
+                    border: 1px solid {T['border_card']};
+                    border-radius: 4px;
+                    background-color: {T['btn_default_bg']};
+                    color: {T['text_main']};
+                }}
+                QPushButton:hover {{
+                    background-color: {T['btn_default_hover']};
+                }}
+            """)
+            def _quick_import():
+                ok, msg, cnt = import_edn_symbols(force=True)
+                from aqt.utils import tooltip, showInfo
+                if ok:
+                    tooltip(msg, period=3000)
+                else:
+                    showInfo(msg)
+            import_btn.clicked.connect(_quick_import)
+            card_layout.addWidget(import_btn)
 
 
 
@@ -1700,6 +1699,98 @@ class EDNSettingsDialog(QDialog):
 
         container_layout.addWidget(protect_frame)
 
+        # ── Surveillance & Rappel FSRS ──
+        fsrs_header = make_selectable_label(
+            f"<b style='font-size: 13px; color: {T['text_main']};'>Surveillance et rappel d'optimisation FSRS</b>"
+        )
+        container_layout.addWidget(fsrs_header)
+
+        fsrs_frame = QFrame()
+        fsrs_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {T["bg_card"]};
+                border: 1px solid {T["border_card"]};
+                border-radius: 6px;
+            }}
+        """)
+        fsrs_layout = QVBoxLayout(fsrs_frame)
+        fsrs_layout.setContentsMargins(14, 10, 14, 10)
+        fsrs_layout.setSpacing(8)
+
+        self.cb_fsrs_checker = QCheckBox("Activer le rappel périodique d'optimisation FSRS au démarrage")
+        self.cb_fsrs_checker.setChecked(is_module_enabled("fsrs_checker"))
+        fsrs_layout.addWidget(self.cb_fsrs_checker)
+
+        # Interval settings
+        cfg = get_config()
+        fsrs_timer_row = QHBoxLayout()
+        fsrs_timer_row.setSpacing(8)
+        fsrs_timer_label = QLabel("Fréquence du rappel standard (semaines) :")
+        fsrs_timer_label.setStyleSheet(f"color: {T['text_main']}; font-size: 12px;")
+        self.spin_fsrs_weeks = QSpinBox()
+        self.spin_fsrs_weeks.setRange(1, 12)
+        self.spin_fsrs_weeks.setValue(int(cfg.get("fsrs_reminder_interval_weeks", 3)))
+        self.spin_fsrs_weeks.setStyleSheet(f"""
+            QSpinBox {{
+                background-color: {T['bg_card_hover']};
+                color: {T['text_main']};
+                border: 1px solid {T['border_card']};
+                border-radius: 4px;
+                padding: 2px 6px;
+            }}
+        """)
+        fsrs_timer_row.addWidget(fsrs_timer_label)
+        fsrs_timer_row.addWidget(self.spin_fsrs_weeks)
+        fsrs_timer_row.addStretch()
+        fsrs_layout.addLayout(fsrs_timer_row)
+
+        # Last opt date and optimal checkbox
+        last_ts = get_last_fsrs_optimization_timestamp()
+        last_str = format_timestamp(last_ts)
+        self.lbl_fsrs_last_date = QLabel(f"<b>Dernière optimisation enregistrée :</b> {last_str}")
+        self.lbl_fsrs_last_date.setStyleSheet(f"color: {T['text_main']}; font-size: 12px;")
+        fsrs_layout.addWidget(self.lbl_fsrs_last_date)
+
+        self.cb_fsrs_was_optimal = QCheckBox("Dernière optimisation : réglages optimaux détectés (réduit le rappel à 1 semaine)")
+        self.cb_fsrs_was_optimal.setChecked(bool(cfg.get("fsrs_last_was_optimal", False)))
+        self.cb_fsrs_was_optimal.setToolTip(
+            "Si Anki a indiqué que vos paramètres sont déjà optimaux lors de la dernière optimisation,\n"
+            "le prochain rappel est automatiquement rapproché à 1 semaine."
+        )
+        fsrs_layout.addWidget(self.cb_fsrs_was_optimal)
+
+
+        container_layout.addWidget(fsrs_frame)
+
+        # ── Outils de Rédaction & Saisie médicale ──
+        redac_header = make_selectable_label(
+            f"<b style='font-size: 13px; color: {T['text_main']};'>Outils de Rédaction et Saisie médicale</b>"
+        )
+        container_layout.addWidget(redac_header)
+
+        redac_frame = QFrame()
+        redac_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {T["bg_card"]};
+                border: 1px solid {T["border_card"]};
+                border-radius: 6px;
+            }}
+        """)
+        redac_layout = QVBoxLayout(redac_frame)
+        redac_layout.setContentsMargins(14, 10, 14, 10)
+        redac_layout.setSpacing(8)
+
+        self.cb_auto_bullet = QCheckBox("Proposer par défaut une première puce dans les champs Verso / Description pour guider le rédacteur")
+        self.cb_auto_bullet.setChecked(bool(cfg.get("auto_bullet_in_editor", True)))
+        self.cb_auto_bullet.setToolTip(
+            "Initialise automatiquement une puce (<ul><li>...</li></ul>) dans les champs de réponse vides\n"
+            "(Verso dans Basique, Description dans Syndrome et Sémiologie) conformément aux normes du deck EDN."
+        )
+        redac_layout.addWidget(self.cb_auto_bullet)
+
+
+        container_layout.addWidget(redac_frame)
+
 
 
         container_layout.addStretch()
@@ -1749,30 +1840,6 @@ class EDNSettingsDialog(QDialog):
         shortcuts_btn.clicked.connect(self.open_shortcuts_dialog)
 
         bottom_row.addWidget(shortcuts_btn)
-
-
-
-        guide_btn = QPushButton("Guide de démarrage")
-
-        guide_btn.setStyleSheet(f"""
-
-            QPushButton {{
-
-                background-color: {T['btn_default_bg']}; color: {T['btn_default_text']}; border: 1px solid {T['btn_default_border']};
-
-                padding: 7px 14px; border-radius: 5px; font-weight: 600; font-size: 12px;
-
-            }}
-
-            QPushButton:hover {{ background-color: {T['btn_default_hover']}; color: {T['text_main']}; }}
-
-        """)
-
-        guide_btn.clicked.connect(lambda: show_onboarding_guide(parent=self))
-
-        bottom_row.addWidget(guide_btn)
-
-
 
         bottom_row.addStretch()
 
@@ -4064,6 +4131,36 @@ class EDNSettingsDialog(QDialog):
         except Exception as e:
 
             print(f"[EDN Settings] Erreur sauvegarde protection: {e}")
+
+
+
+        # Sauvegarde FSRS & Outils Redaction
+
+        try:
+
+            edn_cfg = get_config()
+
+            if hasattr(self, "spin_fsrs_weeks"):
+
+                edn_cfg["fsrs_reminder_interval_weeks"] = self.spin_fsrs_weeks.value()
+
+            if hasattr(self, "cb_fsrs_was_optimal"):
+
+                edn_cfg["fsrs_last_was_optimal"] = self.cb_fsrs_was_optimal.isChecked()
+
+            if hasattr(self, "cb_auto_bullet"):
+
+                edn_cfg["auto_bullet_in_editor"] = self.cb_auto_bullet.isChecked()
+
+            save_config(edn_cfg)
+
+            if hasattr(self, "cb_fsrs_checker"):
+
+                set_module_enabled("fsrs_checker", self.cb_fsrs_checker.isChecked())
+
+        except Exception as e:
+
+            print(f"[EDN Settings] Erreur sauvegarde FSRS/Redaction: {e}")
 
 
 

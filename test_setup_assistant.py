@@ -72,7 +72,7 @@ def test_apply_edn_deck_preset(temp_anki_col):
 
     ok, msg = apply_edn_deck_preset(col=col)
     assert ok is True
-    assert "FSRS 88%" in msg
+    assert "FSRS" in msg
 
     # FSRS doit être activé au niveau de la collection
     assert col.get_config("fsrs") is True
@@ -296,3 +296,30 @@ def test_startup_persistence_only_once(monkeypatch):
 
     check_startup_assistant()
     assert len(called) == 0  # Ne s'affiche plus !
+
+
+def test_detect_suspension_status_with_active_pool(temp_anki_col, monkeypatch):
+    """Vérifie que detect_initial_suspension_status considère le deck déjà configuré si la majorité est suspendue ou apprise."""
+    col, edn_did, other_did = temp_anki_col
+
+    # Mock collection find_cards
+    # Simulate 20 000 EDN cards with 2027 new unsuspended and 17 973 suspended / learned
+    def fake_find_cards(query):
+        if "is:new -is:suspended" in query:
+            return list(range(2027))
+        elif "is:suspended" in query:
+            return list(range(15000))
+        elif "-is:new" in query:
+            return list(range(2973))
+        elif "tag:EDN*" in query:
+            return list(range(20000))
+        return []
+
+    monkeypatch.setattr(col, "find_cards", fake_find_cards)
+    monkeypatch.setattr("Anki_EDN_Installer.shared_menu.get_config", lambda: {})
+
+    status = detect_initial_suspension_status(col=col)
+    assert status["done"] is True
+    assert status["badge"] == "Déjà configuré"
+    assert "2027 actives" in status["details"] or "15000" in status["details"]
+

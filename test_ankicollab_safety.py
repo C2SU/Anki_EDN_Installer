@@ -23,6 +23,7 @@ from Anki_EDN_Installer.filtered_decks import (
     on_sync_will_start,
     on_sync_did_finish,
     save_filtered_decks_settings,
+    _install_ankicollab_pull_guard,
 )
 
 
@@ -283,3 +284,52 @@ def test_ankicollab_sync_guard_does_not_rebuild_emptied_subdecks(anki_test_col):
     delete_all_edn_filtered_decks(ROOT_DECK_NAME, col=col)
 
 
+
+
+def test_ankicollab_pull_guard_direct(anki_test_col):
+    """
+    Vérifie que _install_ankicollab_pull_guard vide les paquets filtrés pendant
+    un pull AnkiCollab et les reconstruit après, sans impacter AnkiWeb.
+    """
+    import sys
+    import types
+    import aqt
+
+    col, edn_did = anki_test_col
+    curriculum = analyze_edn_curriculum(col=col, threshold_pct=40.0)
+
+    # 1. Créer les paquets filtrés
+    generate_filtered_hierarchy(
+        selected_specialties=["Cardiologie"],
+        curriculum_data=curriculum,
+        options={"rebuild": True, "card_filter": "all"},
+        col=col
+    )
+    assert len([cid for cid in col.find_cards("") if col.get_card(cid).odid != 0]) == 10
+
+    # 2. Créer un faux module AnkiCollab.import_manager
+    mock_mod = types.ModuleType("AnkiCollab.import_manager")
+    state = {"cards_during_pull": None}
+
+    def fake_handle_pull(*args, **kwargs):
+        state["cards_during_pull"] = len([cid for cid in col.find_cards("") if col.get_card(cid).odid != 0])
+        return True
+
+    mock_mod.handle_pull = fake_handle_pull
+    sys.modules["AnkiCollab.import_manager"] = mock_mod
+
+    # Simuler mw.col pointant vers notre col de test
+    with patch.object(aqt, "mw", MagicMock(col=col)):
+        _install_ankicollab_pull_guard()
+        mock_mod.handle_pull()
+
+    # Vérification 1 : pendant le pull, 0 carte dans les paquets filtrés
+    assert state["cards_during_pull"] == 0
+
+    # Vérification 2 : après le pull, les paquets filtrés ont été reconstruits
+    rebuilt_cards = [cid for cid in col.find_cards("") if col.get_card(cid).odid != 0]
+    assert len(rebuilt_cards) == 10
+
+    # Nettoyage
+    sys.modules.pop("AnkiCollab.import_manager", None)
+    delete_all_edn_filtered_decks(ROOT_DECK_NAME, col=col)
