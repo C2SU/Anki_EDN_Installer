@@ -6,6 +6,8 @@ DEST_PATH = os.path.join(SOURCE_DIR, "Anki_EDN_Installer.ankiaddon")
 
 EXCLUDES = [
     "__pycache__",
+    ".pytest_cache",
+    "baselines",
     "meta.json",
     ".git",
     ".gitignore",
@@ -18,7 +20,9 @@ EXCLUDES = [
     "test_ankicollab_safety.py",
     "test_field_protection.py",
     "test_setup_assistant.py",
-    "test_edn_redaction_and_fsrs.py"
+    "test_edn_redaction_and_fsrs.py",
+    "test_migrate_edn_tags.py",
+    "console_migration_sdd.py"
 ]
 
 def should_exclude(rel_path):

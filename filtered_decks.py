@@ -58,7 +58,8 @@ CANONICAL_SPECIALTIES = [
     "Sémiologie",
     "Imagerie",
     "Épidémiologie",
-    "Nutrition"
+    "Nutrition",
+    "ECOS"
 ]
 
 
@@ -74,7 +75,7 @@ def normalize_tag_key(tag: str) -> str:
 def is_specialty_tag(tag: str) -> bool:
     """Vérifie si un tag correspond à une spécialité médicale candidate."""
     t = tag.lower().strip()
-    if t.startswith("edn::") or t.startswith("item-") or t.startswith("item_"):
+    if t.startswith("edn::") or t.startswith("item-") or t.startswith("item_") or t.startswith("item::"):
         return False
     for prefix in IGNORED_TAG_PREFIXES:
         if t == prefix or t.startswith(prefix + "::") or t.startswith(prefix + "-") or t.startswith(prefix + "_"):
@@ -108,11 +109,12 @@ def parse_item_tag(tag: str) -> Tuple[Optional[str], Optional[str]]:
     """
     Décompose un tag d'item en (base_item_tag, subtag).
     Exemple : 'EDN::item-236-Troubles-conduction::BAV' -> ('EDN::item-236-Troubles-conduction', 'BAV')
+    Exemple : 'EDN::item::236-Troubles-conduction::BAV' -> ('EDN::item::236-Troubles-conduction', 'BAV')
     Exemple : 'EDN::item-224-HTA' -> ('EDN::item-224-HTA', None)
     Exemple : 'item-001' -> ('item-001', None)
     """
     t = tag.strip()
-    m = re.match(r"^(?:edn::)?(item[_-]\d+[^:]*)(?:::+(.*))?$", t, re.IGNORECASE)
+    m = re.match(r"^(?:edn::)?(item(?:[_-]|::)\d+[^:]*)(?:::+(.*))?$", t, re.IGNORECASE)
     if m:
         base_item = m.group(1)
         base_tag = f"EDN::{base_item}" if t.lower().startswith("edn::") else base_item
@@ -138,13 +140,14 @@ def clean_item_base_label(base_tag: str) -> Tuple[int, str]:
     """
     Extrait le numéro et génère le libellé propre de l'item de base (sans sous-tag).
     Exemple : 'EDN::item-224-HTA' -> (224, 'Item 224 - HTA')
+    Exemple : 'EDN::item::224-HTA' -> (224, 'Item 224 - HTA')
     Exemple : 'EDN::item-236-Troubles-conduction' -> (236, 'Item 236 - Troubles Conduction')
     """
     tag = base_tag.strip()
     if tag.lower().startswith("edn::"):
         tag = tag[5:].strip()
 
-    m = re.match(r"^item[_-]?0*(\d+)[_-]?(.*)$", tag, re.IGNORECASE)
+    m = re.match(r"^item(?:[_-]|::)?0*(\d+)[_-]?(.*)$", tag, re.IGNORECASE)
     if m:
         item_num = int(m.group(1))
         rest = m.group(2).strip()
@@ -164,15 +167,71 @@ def clean_item_label(item_tag: str) -> Tuple[int, str]:
     Extrait le numéro et génère un libellé propre d'item en préservant les acronymes médicaux.
     Exemple : 'EDN::item-224-HTA' -> (224, 'Item 224 - HTA')
     Exemple : 'EDN::item-236-Troubles-conduction::BAV' -> (236, 'Item 236 - Troubles Conduction - BAV')
+    Exemple : 'EDN::SDD::001-Constipation' -> (1, 'SDD 001 - Constipation')
     """
     base_tag, subtag = parse_item_tag(item_tag)
     if not base_tag:
+        base_sdd, sdd_sub = parse_sdd_tag(item_tag)
+        if base_sdd:
+            num, base_lbl = clean_sdd_base_label(base_sdd)
+            if sdd_sub:
+                return num, f"{base_lbl} - {clean_subtag_label(sdd_sub)}"
+            return num, base_lbl
         return 9999, format_medical_part(item_tag)
     item_num, base_label = clean_item_base_label(base_tag)
     if subtag:
         sub_label = clean_subtag_label(subtag)
         return item_num, f"{base_label} - {sub_label}"
     return item_num, base_label
+
+
+def parse_sdd_tag(tag: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Décompose un tag SDD en (base_sdd_tag, subtag).
+    Exemple : 'EDN::SDD::001-Constipation' -> ('EDN::SDD::001-Constipation', None)
+    Exemple : 'EDN::SDD::Procédures::Ponction-lombaire' -> ('EDN::SDD::Procédures', 'Ponction-lombaire')
+    Exemple : 'EDN::sdd-002-Diarrhee::arbre' -> ('EDN::SDD::002-Diarrhee', 'arbre')
+    Exemple : 'EDN::SDD-200-Dyscalcémie' -> ('EDN::SDD::200-Dyscalcémie', None)
+    """
+    t = tag.strip()
+    m = re.match(r"^(?:edn::)?(s{1,2}dd)(?:[_-]|::)(.*)$", t, re.IGNORECASE)
+    if not m:
+        return None, None
+    sdd_prefix = m.group(1).upper()
+    rest = m.group(2).strip()
+    if "::" in rest:
+        parts = rest.split("::")
+        base = f"EDN::{sdd_prefix}::{parts[0]}"
+        subtag = "::".join(parts[1:])
+        return base, subtag
+    return f"EDN::{sdd_prefix}::{rest}", None
+
+
+def clean_sdd_base_label(base_tag: str) -> Tuple[int, str]:
+    """
+    Extrait le numéro et génère le libellé propre de la Situation de Départ (SDD).
+    Exemple : 'EDN::SDD::001-Constipation' -> (1, 'SDD 001 - Constipation')
+    Exemple : 'EDN::SDD::185-ECG' -> (185, 'SDD 185 - ECG')
+    Exemple : 'EDN::SDD::Procédures' -> (9000, 'SDD Procédures')
+    Exemple : 'EDN::SDD::Examen-clinique' -> (9000, 'SDD Examen Clinique')
+    """
+    tag = base_tag.strip()
+    m_pfx = re.match(r"^(?:edn::)?(?:s{1,2}dd)(?:[_-]|::)(.*)$", tag, re.IGNORECASE)
+    name = m_pfx.group(1).strip() if m_pfx else tag
+
+    m_num = re.match(r"^0*(\d+)[_-]?(.*)$", name)
+    if m_num:
+        num = int(m_num.group(1))
+        rest = m_num.group(2).strip()
+        if rest:
+            subparts = [p.strip() for p in rest.split("::") if p.strip()]
+            formatted_rest = " - ".join(format_medical_part(p) for p in subparts)
+            return num, f"SDD {num:03d} - {formatted_rest}"
+        return num, f"SDD {num:03d}"
+
+    subparts = [p.strip() for p in name.split("::") if p.strip()]
+    formatted = " - ".join(format_medical_part(p) for p in subparts)
+    return 9000, f"SDD {formatted}"
 
 
 def find_edn_deck_name(col=None) -> str:
@@ -317,7 +376,10 @@ def analyze_edn_curriculum(col=None, threshold_pct: float = 40.0) -> Dict[str, A
         col = mw.col
 
     db = col.db
-    query = "SELECT id, tags FROM notes WHERE tags LIKE '%item-%' OR tags LIKE '%item_%'"
+    query = (
+        "SELECT id, tags FROM notes WHERE tags LIKE '%item-%' OR tags LIKE '%item_%' "
+        "OR tags LIKE '%item::%' OR tags LIKE '%sdd%' OR tags LIKE '%SDD%'"
+    )
     rows = db.all(query)
 
     base_item_notes = defaultdict(set)
@@ -325,6 +387,13 @@ def analyze_edn_curriculum(col=None, threshold_pct: float = 40.0) -> Dict[str, A
     base_item_all_subtags = defaultdict(set)
     base_item_sub_spec_notes = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
     base_item_baseonly_spec_notes = defaultdict(lambda: defaultdict(set))
+
+    # Structures de données pour ECOS / SDD
+    base_sdd_notes = defaultdict(set)
+    base_sdd_all_subtags = defaultdict(set)
+    base_sdd_sub_notes = defaultdict(lambda: defaultdict(set))
+    base_sdd_baseonly_notes = defaultdict(set)
+    ecos_all_notes = set()
 
     for nid, tags_str in rows:
         if not tags_str:
@@ -337,6 +406,10 @@ def analyze_edn_curriculum(col=None, threshold_pct: float = 40.0) -> Dict[str, A
         # Extraction des items et sous-tags
         note_base_items = set()
         note_item_subtags = defaultdict(set)
+        # Extraction des SDD et sous-tags
+        note_sdd_items = set()
+        note_sdd_subtags = defaultdict(set)
+
         for t in tags:
             b_tag, sub = parse_item_tag(t)
             if b_tag:
@@ -344,6 +417,13 @@ def analyze_edn_curriculum(col=None, threshold_pct: float = 40.0) -> Dict[str, A
                 if sub:
                     note_item_subtags[b_tag].add(sub)
                     base_item_all_subtags[b_tag].add(sub)
+
+            b_sdd, sdd_sub = parse_sdd_tag(t)
+            if b_sdd:
+                note_sdd_items.add(b_sdd)
+                if sdd_sub:
+                    note_sdd_subtags[b_sdd].add(sdd_sub)
+                    base_sdd_all_subtags[b_sdd].add(sdd_sub)
 
         for b_tag in note_base_items:
             base_item_notes[b_tag].add(nid)
@@ -354,6 +434,15 @@ def analyze_edn_curriculum(col=None, threshold_pct: float = 40.0) -> Dict[str, A
                         base_item_sub_spec_notes[b_tag][sp][s].add(nid)
                 else:
                     base_item_baseonly_spec_notes[b_tag][sp].add(nid)
+
+        for b_sdd in note_sdd_items:
+            base_sdd_notes[b_sdd].add(nid)
+            ecos_all_notes.add(nid)
+            if note_sdd_subtags[b_sdd]:
+                for s in note_sdd_subtags[b_sdd]:
+                    base_sdd_sub_notes[b_sdd][s].add(nid)
+            else:
+                base_sdd_baseonly_notes[b_sdd].add(nid)
 
     # Qualification des items par spécialité
     specialties_data = {}
@@ -417,19 +506,88 @@ def analyze_edn_curriculum(col=None, threshold_pct: float = 40.0) -> Dict[str, A
                     "subtags": subtags_list
                 })
 
+    # Construction de la section ECOS (Situations de Départ)
+    if ecos_all_notes:
+        ecos_items = []
+
+        # 1. Option principale : Deck global ECOS complet regroupant toutes les SDD
+        ecos_items.append({
+            "tag": "EDN::SDD*",
+            "label": "Deck ECOS (Toutes les SDD)",
+            "item_num": 0,
+            "total_cards": len(ecos_all_notes),
+            "spec_cards": len(ecos_all_notes),
+            "pct": 100.0,
+            "has_subtags": False,
+            "subtags": [],
+            "is_ecos_global": True
+        })
+
+        # 2. Chaque Situation de Départ (SDD) individuelle
+        for b_sdd, s_notes in base_sdd_notes.items():
+            num, sdd_label = clean_sdd_base_label(b_sdd)
+            all_subs = base_sdd_all_subtags.get(b_sdd, set())
+            subtags_list = []
+            if all_subs:
+                base_only = base_sdd_baseonly_notes.get(b_sdd, set())
+                if base_only:
+                    base_query = f'"tag:{b_sdd}*" -"tag:{b_sdd}::*"'
+                    subtags_list.append({
+                        "name": "Généralités",
+                        "subtag": None,
+                        "tag_query": base_query,
+                        "spec_cards": len(base_only),
+                        "is_base_only": True
+                    })
+                for s in sorted(all_subs):
+                    sub_n = base_sdd_sub_notes[b_sdd].get(s, set())
+                    if sub_n:
+                        s_label = clean_subtag_label(s)
+                        has_children = any(other.startswith(s + "::") for other in all_subs if other != s)
+                        if has_children:
+                            sub_query = f'"tag:{b_sdd}::{s}*" -"tag:{b_sdd}::{s}::*"'
+                        else:
+                            sub_query = f'"tag:{b_sdd}::{s}*"'
+                        subtags_list.append({
+                            "name": s_label,
+                            "subtag": s,
+                            "tag_query": sub_query,
+                            "spec_cards": len(sub_n),
+                            "is_base_only": False
+                        })
+            has_subtags = bool(subtags_list)
+            ecos_items.append({
+                "tag": b_sdd,
+                "label": sdd_label,
+                "item_num": num,
+                "total_cards": len(s_notes),
+                "spec_cards": len(s_notes),
+                "pct": 100.0,
+                "has_subtags": has_subtags,
+                "subtags": subtags_list
+            })
+
+        ecos_items.sort(key=lambda x: (x["item_num"], x["label"]))
+        specialties_data["ECOS"] = {
+            "item_count": len(ecos_items),
+            "total_cards": len(ecos_all_notes),
+            "items": ecos_items
+        }
+
     # Nettoyage et tri des spécialités
     final_specialties = {}
     for sp, data in specialties_data.items():
         if data["items"]:
-            # Trier les items par numéro d'item
-            data["items"].sort(key=lambda x: (x["item_num"], x["label"]))
-            data["item_count"] = len(data["items"])
-            data["total_cards"] = sum(it["spec_cards"] for it in data["items"])
+            if sp != "ECOS":
+                # Trier les items par numéro d'item
+                data["items"].sort(key=lambda x: (x["item_num"], x["label"]))
+                data["item_count"] = len(data["items"])
+                data["total_cards"] = sum(it["spec_cards"] for it in data["items"])
             final_specialties[sp] = data
 
     return {
         "specialties": final_specialties,
-        "total_items": len(base_item_notes),
+        "total_items": len(base_item_notes) + len(base_sdd_notes),
         "total_notes": len(rows)
     }
 
@@ -452,11 +610,13 @@ def build_filtered_query(
 
     if tag_query:
         parts.append(tag_query)
+    elif specialty == "ECOS" and (item_tag == "EDN::SDD*" or item_tag == "ECOS"):
+        parts.append('(tag:EDN::SDD* or tag:EDN::sdd* or tag:EDN::SSDD* or tag:EDN::ssdd*)')
     else:
         parts.append(f'"tag:{item_tag}*"')
 
-    # Volet matière de l'item vs Item complet
-    if scope == "volet_matiere" and specialty:
+    # Volet matière de l'item vs Item complet (ECOS ne filtre pas par spécialité)
+    if scope == "volet_matiere" and specialty and specialty != "ECOS":
         spec_norm = specialty.replace(" ", "-")
         parts.append(f'tag:{spec_norm}*')
 
@@ -545,6 +705,15 @@ def generate_filtered_hierarchy(
             sp_data = specialties_dict.get(sp)
             if not sp_data or not sp_data.get("items"):
                 continue
+            if sp == "ECOS":
+                allowed = set(selected_items[sp]) if (selected_items and sp in selected_items) else set()
+                has_global = (not selected_items) or (not allowed) or any(
+                    it.get("is_ecos_global") or it["tag"] in allowed or it["label"] in allowed
+                    for it in sp_data["items"] if it.get("is_ecos_global")
+                )
+                if has_global:
+                    total_items_to_process += 1
+                    continue
             for it in sp_data["items"]:
                 b_tag = it["tag"]
                 has_sub = it.get("has_subtags", False)
@@ -552,11 +721,11 @@ def generate_filtered_hierarchy(
                 if selected_items and sp in selected_items:
                     allowed = set(selected_items[sp])
                     if not has_sub:
-                        if b_tag in allowed:
+                        if b_tag in allowed or it["label"] in allowed:
                             total_items_to_process += 1
                     else:
                         for s in sub_list:
-                            if b_tag in allowed or s["name"] in allowed or f"{b_tag}::{s['name']}" in allowed:
+                            if b_tag in allowed or it["label"] in allowed or s["name"] in allowed or f"{b_tag}::{s['name']}" in allowed:
                                 total_items_to_process += 1
                 else:
                     if not has_sub:
@@ -579,24 +748,72 @@ def generate_filtered_hierarchy(
                     b_tag = it["tag"]
                     has_sub = it.get("has_subtags", False)
                     if not has_sub:
-                        if b_tag in allowed_entries:
+                        if b_tag in allowed_entries or it["label"] in allowed_entries:
                             filtered_items.append(it)
                     else:
                         checked_subs = [
                             s for s in it.get("subtags", [])
-                            if b_tag in allowed_entries or s["name"] in allowed_entries or f"{b_tag}::{s['name']}" in allowed_entries
+                            if b_tag in allowed_entries or it["label"] in allowed_entries or s["name"] in allowed_entries or f"{b_tag}::{s['name']}" in allowed_entries
                         ]
-                        if checked_subs:
+                        if checked_subs or b_tag in allowed_entries or it["label"] in allowed_entries:
                             it_copy = dict(it)
-                            it_copy["subtags"] = checked_subs
+                            if checked_subs:
+                                it_copy["subtags"] = checked_subs
                             filtered_items.append(it_copy)
                 items_to_process = filtered_items
 
             if not items_to_process:
                 continue
 
+            # Cas particulier ECOS : si le Deck global ECOS ou l'ensemble est demandé
+            if sp == "ECOS":
+                has_global_deck = any(it.get("is_ecos_global") or it.get("tag") == "EDN::SDD*" for it in items_to_process)
+                if has_global_deck or not selected_items or (selected_items and sp in selected_items and not selected_items[sp]):
+                    leaf_deck_name = f"{root_name}::ECOS"
+                    did = col.decks.id_for_name(leaf_deck_name)
+                    if did:
+                        if not col.decks.is_filtered(did):
+                            col.decks.remove([did])
+                            did = col.decks.new_filtered(leaf_deck_name)
+                    else:
+                        did = col.decks.new_filtered(leaf_deck_name)
+
+                    query = build_filtered_query(
+                        edn_deck=edn_deck,
+                        item_tag="EDN::SDD*",
+                        specialty="ECOS",
+                        scope=scope,
+                        card_filter=card_filter,
+                        rank_filter=rank_filter,
+                        tag_query='(tag:EDN::SDD* or tag:EDN::sdd* or tag:EDN::SSDD* or tag:EDN::ssdd*)'
+                    )
+
+                    deck = col.decks.get(did)
+                    deck["terms"] = [[query, limit, resolved_order]]
+                    deck["resched"] = bool(resched)
+                    deck["delays"] = None
+                    col.decks.save(deck)
+                    created_decks += 1
+
+                    if rebuild:
+                        try:
+                            res = col.sched.rebuild_filtered_deck(did)
+                            rebuilt_cards += getattr(res, "count", 0)
+                        except Exception as e:
+                            log_error(f"Erreur reconstruction paquet {leaf_deck_name}: {e}")
+
+                    processed += 1
+                    if progress_callback:
+                        progress_callback(processed, total_items_to_process, leaf_deck_name)
+                    continue
+
             # 2. Création du dossier de spécialité normal conteneur (dyn: 0)
             sp_deck_name = f"{root_name}::{sp}"
+            old_sp_did = col.decks.id_for_name(sp_deck_name)
+            if old_sp_did and col.decks.is_filtered(old_sp_did):
+                col.sched.empty_filtered_deck(old_sp_did)
+                col.decks.remove([old_sp_did])
+
             col.decks.add_normal_deck_with_name(sp_deck_name)
             sp_did = col.decks.id_for_name(sp_deck_name)
             if sp_did and edn_conf_id:
@@ -717,6 +934,95 @@ def generate_filtered_hierarchy(
 
     except Exception as e:
         log_error(f"Erreur lors de la génération de l'arborescence : {e}")
+        return {"success": False, "error": str(e)}
+
+
+def generate_ecos_deck(
+    options: Optional[Dict[str, Any]] = None,
+    col=None
+) -> Dict[str, Any]:
+    """
+    Génère spécifiquement le paquet filtré 'ECOS' regroupant l'ensemble
+    des cartes balisées avec les Situations de Départ (EDN::SDD).
+    Garantit l'étanchéité totale vis-à-vis d'AnkiCollab et hérite des options EDN.
+    """
+    if col is None:
+        if mw is None or mw.col is None:
+            return {"success": False, "error": "Collection non disponible"}
+        col = mw.col
+
+    opts = options or {}
+    root_name = opts.get("root_name", ROOT_DECK_NAME)
+    card_filter = opts.get("card_filter", "due_and_new")
+    rank_filter = opts.get("rank_filter", "all")
+    resched = opts.get("resched", True)
+    rebuild = opts.get("rebuild", True)
+    limit = opts.get("limit", 9999)
+
+    edn_deck = find_edn_deck_name(col)
+    edn_deck_dict, edn_conf_id, edn_conf = get_edn_deck_and_config(col)
+
+    order_opt = opts.get("order", "inherit")
+    if order_opt == "inherit":
+        resolved_order = map_edn_review_order_to_filtered_order(edn_conf)
+    else:
+        try:
+            resolved_order = int(order_opt)
+        except (ValueError, TypeError):
+            resolved_order = 6
+
+    try:
+        # Création du conteneur racine si nécessaire
+        col.decks.add_normal_deck_with_name(root_name)
+        root_did = col.decks.id_for_name(root_name)
+        if root_did and edn_conf_id:
+            root_deck = col.decks.get(root_did)
+            if root_deck and root_deck.get("conf") != edn_conf_id:
+                col.decks.set_config_id_for_deck_dict(root_deck, edn_conf_id)
+
+        ecos_deck_name = f"{root_name}::ECOS"
+        did = col.decks.id_for_name(ecos_deck_name)
+        if did:
+            if not col.decks.is_filtered(did):
+                col.decks.remove([did])
+                did = col.decks.new_filtered(ecos_deck_name)
+        else:
+            did = col.decks.new_filtered(ecos_deck_name)
+
+        query = build_filtered_query(
+            edn_deck=edn_deck,
+            item_tag="EDN::SDD*",
+            specialty="ECOS",
+            scope="item_complet",
+            card_filter=card_filter,
+            rank_filter=rank_filter,
+            tag_query='(tag:EDN::SDD* or tag:EDN::sdd* or tag:EDN::SSDD* or tag:EDN::ssdd*)'
+        )
+
+        deck = col.decks.get(did)
+        deck["terms"] = [[query, limit, resolved_order]]
+        deck["resched"] = bool(resched)
+        deck["delays"] = None
+        col.decks.save(deck)
+
+        rebuilt_cards = 0
+        if rebuild:
+            res = col.sched.rebuild_filtered_deck(did)
+            rebuilt_cards = getattr(res, "count", 0)
+
+        sync_hierarchy_deck_options(root_name, col)
+        log(f"Paquet filtré ECOS généré avec succès : {ecos_deck_name} ({rebuilt_cards} cartes allouées).")
+
+        return {
+            "success": True,
+            "did": did,
+            "deck_name": ecos_deck_name,
+            "query": query,
+            "cards_count": rebuilt_cards,
+            "root_name": root_name
+        }
+    except Exception as e:
+        log_error(f"Erreur lors de la génération du Deck ECOS : {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -1028,7 +1334,7 @@ def on_sync_did_finish(col=None):
         if target_col:
             res = rebuild_all_edn_filtered_decks(col=target_col, deck_ids=evacuated)
             count = res.get("count", 0)
-            if count > 0:
+            if count > 0 and getattr(mw, "app", None):
                 tooltip(f"Paquets filtrés EDN restaurés après synchronisation ({count} paquet(s)).", period=2000)
     except Exception as e:
         log_error(f"Erreur hook on_sync_did_finish: {e}")
@@ -1138,5 +1444,10 @@ def init_filtered_decks():
     except Exception:
         pass
     setup_browser_filtered_deck_hooks()
+    try:
+        from .filtered_deck_actions import init_filtered_deck_actions
+        init_filtered_deck_actions()
+    except Exception as e:
+        log_error(f"Erreur initialisation actions paquets filtrés: {e}")
     _HOOKS_INSTALLED = True
-    log("Module Paquets Filtrés EDN initialisé (garde-fou AnkiCollab et navigateur actifs).")
+    log("Module Paquets Filtrés EDN initialisé (garde-fou AnkiCollab, navigateur et actions rapides actifs).")

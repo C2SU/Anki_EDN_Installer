@@ -24,6 +24,10 @@ from Anki_EDN_Installer.filtered_decks import (
 
     clean_item_label,
 
+    parse_sdd_tag,
+
+    clean_sdd_base_label,
+
     clean_specialty_name,
 
     is_specialty_tag,
@@ -33,6 +37,8 @@ from Anki_EDN_Installer.filtered_decks import (
     analyze_edn_curriculum,
 
     generate_filtered_hierarchy,
+
+    generate_ecos_deck,
 
     empty_all_edn_filtered_decks,
 
@@ -1716,10 +1722,337 @@ def test_option_labels_and_choices(qapp):
     assert not any("A & B" in t for t in rank_texts)
 
 
+def test_filtered_deck_actions_queries_and_detection():
+    from Anki_EDN_Installer.filtered_deck_actions import (
+        is_edn_filtered_deck,
+        extract_action_queries
+    )
+
+    # 1. Détection de paquet filtré EDN
+    assert is_edn_filtered_deck(None) is False
+    assert is_edn_filtered_deck({"name": "Anki EDN", "dyn": False}) is False
+    assert is_edn_filtered_deck({"name": "EDN - Paquets Filtrés", "dyn": False}) is False
+    assert is_edn_filtered_deck({"name": "EDN - Paquets Filtrés::Cardiologie::Item 224 - HTA", "dyn": True}) is True
+    assert is_edn_filtered_deck({"name": "EDN - Paquets Filtrés::ECOS", "dyn": True}) is True
+
+    # 2. Extraction des requêtes de recherche
+    deck = {
+        "name": "EDN - Paquets Filtrés::Cardiologie::Item 224 - HTA",
+        "dyn": True,
+        "terms": [['deck:"Anki EDN" "tag:EDN::item-224-HTA*" tag:Cardiologie* (is:due or is:new)', 9999, 6]]
+    }
+    res = extract_action_queries(deck)
+    assert res is not None
+    q_browser, q_rank_a, q_all = res
+    assert 'deck:"Anki EDN" "tag:EDN::item-224-HTA*" tag:Cardiologie*' == q_browser
+    assert "(tag:Rang_A* or tag:rang::a*) is:suspended" in q_rank_a
+    assert "is:suspended" in q_all
 
 
+def test_filtered_deck_actions_unsuspend_and_rebuild(temp_anki_collection):
+    from Anki_EDN_Installer.filtered_deck_actions import (
+        extract_action_queries,
+        get_suspended_counts,
+        execute_unsuspend_and_rebuild_sync
+    )
+
+    col = temp_anki_collection
+    edn_did = col.decks.id_for_name("Anki EDN")
+    notetype = col.models.by_name("Basic")
+
+    # 3 cartes : 1 active (due), 1 suspendue rang A, 1 suspendue rang B
+    n1 = col.new_note(notetype)
+    n1.fields[0] = "Cardio Q1"
+    n1.fields[1] = "Cardio A1"
+    n1.tags = ["EDN::item-999-TestActions", "Cardiologie", "Rang_A"]
+    col.add_note(n1, edn_did)
+
+    n2 = col.new_note(notetype)
+    n2.fields[0] = "Cardio Q2"
+    n2.fields[1] = "Cardio A2"
+    n2.tags = ["EDN::item-999-TestActions", "Cardiologie", "Rang_A"]
+    col.add_note(n2, edn_did)
+    cid2 = n2.cards()[0].id
+    col.sched.suspend_cards([cid2])
+
+    n3 = col.new_note(notetype)
+    n3.fields[0] = "Cardio Q3"
+    n3.fields[1] = "Cardio A3"
+    n3.tags = ["EDN::item-999-TestActions", "Cardiologie", "Rang_B"]
+    col.add_note(n3, edn_did)
+    cid3 = n3.cards()[0].id
+    col.sched.suspend_cards([cid3])
+
+    fd_name = f"{ROOT_DECK_NAME}::Cardiologie::Item 999 - TestActions"
+    fd_did = col.decks.new_filtered(fd_name)
+    raw_query = build_filtered_query(
+        edn_deck="Anki EDN",
+        item_tag="EDN::item-999-TestActions",
+        specialty="Cardiologie",
+        card_filter="due_and_new"
+    )
+    deck = col.decks.get(fd_did)
+    deck["terms"] = [[raw_query, 9999, 6]]
+    col.decks.save(deck)
+    col.sched.rebuild_filtered_deck(fd_did)
+
+    q_browser, q_a, q_all = extract_action_queries(deck)
+    count_a, count_all = get_suspended_counts(col, q_a, q_all)
+    assert count_a == 1
+    assert count_all == 2
+
+    # 1. Dé-suspendre rangs A
+    cids_a = col.find_cards(q_a)
+    assert cids_a == [cid2]
+    rebuilt_count = execute_unsuspend_and_rebuild_sync(col, fd_did, cids_a)
+    assert rebuilt_count == 2
+
+    count_a_after, count_all_after = get_suspended_counts(col, q_a, q_all)
+    assert count_a_after == 0
+    assert count_all_after == 1
+
+    # 2. Dé-suspendre tout
+    cids_all = col.find_cards(q_all)
+    assert cids_all == [cid3]
+    rebuilt_count_all = execute_unsuspend_and_rebuild_sync(col, fd_did, cids_all)
+    assert rebuilt_count_all == 3
+
+    count_a_final, count_all_final = get_suspended_counts(col, q_a, q_all)
+    assert count_a_final == 0
+    assert count_all_final == 0
+
+    delete_all_edn_filtered_decks(ROOT_DECK_NAME, col=col)
 
 
+def test_parse_and_clean_sdd_tags():
+    # 1. SDD numérotée simple
+    b, s = parse_sdd_tag("EDN::SDD::001-Constipation")
+    assert b == "EDN::SDD::001-Constipation"
+    assert s is None
+    num, lbl = clean_sdd_base_label(b)
+    assert num == 1
+    assert lbl == "SDD 001 - Constipation"
+
+    # 2. SDD avec acronyme médical
+    b, s = parse_sdd_tag("EDN::SDD::185-ECG")
+    assert b == "EDN::SDD::185-ECG"
+    num, lbl = clean_sdd_base_label(b)
+    assert num == 185
+    assert lbl == "SDD 185 - ECG"
+
+    # 3. SDD avec sous-tag
+    b, s = parse_sdd_tag("EDN::SDD::Procédures::Ponction-lombaire")
+    assert b == "EDN::SDD::Procédures"
+    assert s == "Ponction-lombaire"
+    num, lbl = clean_sdd_base_label(b)
+    assert num == 9000
+    assert lbl == "SDD Procédures"
+
+    # 4. Format historique en minuscules et tirets
+    b, s = parse_sdd_tag("EDN::sdd-002-Diarrhee::arbre")
+    assert b == "EDN::SDD::002-Diarrhee"
+    assert s == "arbre"
+    num, lbl = clean_sdd_base_label(b)
+    assert num == 2
+    assert lbl == "SDD 002 - Diarrhee"
+
+    # 5. SDD non numérique
+    b, s = parse_sdd_tag("EDN::SDD::Tombable")
+    assert b == "EDN::SDD::Tombable"
+    assert s is None
+    num, lbl = clean_sdd_base_label(b)
+    assert num == 9000
+    assert lbl == "SDD Tombable"
+
+    # 6. clean_item_label accepte aussi les SDD
+    n, l = clean_item_label("EDN::SDD::001-Constipation")
+    assert n == 1
+    assert l == "SDD 001 - Constipation"
 
 
+def test_analyze_edn_curriculum_detects_ecos_and_sdd(temp_anki_collection):
+    col = temp_anki_collection
+    edn_did = col.decks.id_for_name("Anki EDN")
+    notetype = col.models.by_name("Basic")
 
+    # Ajouter des notes portant des tags SDD
+    n1 = col.new_note(notetype)
+    n1.fields[0] = "SDD Q1"
+    n1.fields[1] = "SDD A1"
+    n1.tags = ["EDN::SDD::001-Constipation", "Gastro-entérologie", "Rang_A"]
+    col.add_note(n1, edn_did)
+
+    n2 = col.new_note(notetype)
+    n2.fields[0] = "SDD Q2"
+    n2.fields[1] = "SDD A2"
+    n2.tags = ["EDN::SDD::002-Diarrhée", "Gastro-entérologie", "Rang_B"]
+    col.add_note(n2, edn_did)
+
+    n3 = col.new_note(notetype)
+    n3.fields[0] = "SDD Q3"
+    n3.fields[1] = "SDD A3"
+    n3.tags = ["EDN::SDD::Procédures::Ponction-lombaire", "Neurologie"]
+    col.add_note(n3, edn_did)
+
+    data = analyze_edn_curriculum(col=col, threshold_pct=40.0)
+    specs = data["specialties"]
+
+    assert "ECOS" in specs
+    ecos_data = specs["ECOS"]
+    assert ecos_data["total_cards"] == 3
+
+    items = ecos_data["items"]
+    # Premier élément : Deck global ECOS
+    assert items[0]["tag"] == "EDN::SDD*"
+    assert items[0]["label"] == "Deck ECOS (Toutes les SDD)"
+    assert items[0]["is_ecos_global"] is True
+    assert items[0]["spec_cards"] == 3
+
+    # Items individuels
+    item_tags = [it["tag"] for it in items]
+    assert "EDN::SDD::001-Constipation" in item_tags
+    assert "EDN::SDD::002-Diarrhée" in item_tags
+    assert "EDN::SDD::Procédures" in item_tags
+
+
+def test_build_filtered_query_ecos():
+    query = build_filtered_query(
+        edn_deck="Anki EDN",
+        item_tag="EDN::SDD*",
+        specialty="ECOS",
+        scope="volet_matiere",
+        card_filter="due_and_new",
+        rank_filter="all"
+    )
+
+    assert 'deck:"Anki EDN"' in query
+    assert "(tag:EDN::SDD* or tag:EDN::sdd* or tag:EDN::SSDD* or tag:EDN::ssdd*)" in query
+    assert "(is:due or is:new)" in query
+    # ECOS ne doit PAS injecter tag:ECOS*
+    assert "tag:ECOS" not in query
+
+
+def test_generate_ecos_deck_direct(temp_anki_collection):
+    col = temp_anki_collection
+    edn_did = col.decks.id_for_name("Anki EDN")
+    notetype = col.models.by_name("Basic")
+
+    # Ajouter 2 notes avec tags SDD
+    for i in range(2):
+        n = col.new_note(notetype)
+        n.fields[0] = f"ECOS Q{i}"
+        n.fields[1] = f"ECOS A{i}"
+        n.tags = [f"EDN::SDD::00{i+1}-Symptome", "Rang_A"]
+        col.add_note(n, edn_did)
+
+    res = generate_ecos_deck(col=col, options={"card_filter": "all", "rebuild": True})
+    assert res["success"] is True
+    assert res["deck_name"] == f"{ROOT_DECK_NAME}::ECOS"
+    assert res["cards_count"] == 2
+
+    # Vérifier que le paquet est bien un paquet filtré dans Anki
+    did = res["did"]
+    assert col.decks.is_filtered(did) is True
+
+    # Vérifier les termes de recherche
+    deck = col.decks.get(did)
+    terms = deck.get("terms", [])
+    assert len(terms) > 0
+    assert "(tag:EDN::SDD* or tag:EDN::sdd*" in terms[0][0]
+
+    # Test d'idempotence : ré-exécuter met à jour sans doublon
+    res2 = generate_ecos_deck(col=col, options={"card_filter": "all", "rebuild": True})
+    assert res2["success"] is True
+    assert res2["did"] == did
+    assert res2["cards_count"] == 2
+
+    delete_all_edn_filtered_decks(ROOT_DECK_NAME, col=col)
+
+
+def test_generate_filtered_hierarchy_with_ecos(temp_anki_collection):
+    col = temp_anki_collection
+    edn_did = col.decks.id_for_name("Anki EDN")
+    notetype = col.models.by_name("Basic")
+
+    # Ajouter notes SDD
+    n = col.new_note(notetype)
+    n.fields[0] = "SDD Q"
+    n.fields[1] = "SDD A"
+    n.tags = ["EDN::SDD::001-Constipation", "Rang_A"]
+    col.add_note(n, edn_did)
+
+    curriculum = analyze_edn_curriculum(col=col)
+    assert "ECOS" in curriculum["specialties"]
+
+    # Génération hiérarchique avec ECOS sélectionné
+    res = generate_filtered_hierarchy(
+        selected_specialties=["ECOS"],
+        curriculum_data=curriculum,
+        options={"card_filter": "all", "rebuild": True},
+        col=col
+    )
+    assert res["success"] is True
+    assert res["created_decks"] >= 1
+    assert res["rebuilt_cards"] >= 1
+
+    ecos_did = col.decks.id_for_name(f"{ROOT_DECK_NAME}::ECOS")
+    assert ecos_did is not None
+    assert col.decks.is_filtered(ecos_did) is True
+
+    # Cycle de vie complet : vidage, reconstruction, suppression
+    emptied = empty_all_edn_filtered_decks(ROOT_DECK_NAME, col=col)
+    assert emptied >= 1
+
+    rebuilt = rebuild_all_edn_filtered_decks(ROOT_DECK_NAME, col=col)
+    assert rebuilt["count"] >= 1
+
+    deleted = delete_all_edn_filtered_decks(ROOT_DECK_NAME, col=col)
+    assert deleted is True
+    assert col.decks.id_for_name(f"{ROOT_DECK_NAME}::ECOS") is None
+
+
+def test_dialog_ecos_button_and_search(qapp):
+    from Anki_EDN_Installer.filtered_decks_dialog import FilteredDecksDialog
+
+    mock_curriculum = {
+        "specialties": {
+            "Cardiologie": {
+                "item_count": 1,
+                "total_cards": 5,
+                "items": [{"tag": "EDN::item-224-HTA", "label": "Item 224 - HTA", "item_num": 224, "total_cards": 5, "spec_cards": 5, "pct": 100.0, "has_subtags": False, "subtags": []}]
+            },
+            "ECOS": {
+                "item_count": 2,
+                "total_cards": 3,
+                "items": [
+                    {"tag": "EDN::SDD*", "label": "Deck ECOS (Toutes les SDD)", "item_num": 0, "total_cards": 3, "spec_cards": 3, "pct": 100.0, "has_subtags": False, "subtags": [], "is_ecos_global": True},
+                    {"tag": "EDN::SDD::001-Constipation", "label": "SDD 001 - Constipation", "item_num": 1, "total_cards": 1, "spec_cards": 1, "pct": 100.0, "has_subtags": False, "subtags": []}
+                ]
+            }
+        }
+    }
+
+    dialog = FilteredDecksDialog()
+    dialog.load_data(mock_curriculum)
+
+    # 1. Verifier la presence du bouton Dedie ECOS directement au contact des matieres (dans tree_group)
+    assert hasattr(dialog, "ecos_btn")
+    assert dialog.ecos_btn.text() == "Générer le Deck ECOS"
+    assert dialog.ecos_btn.parent().title() == "Disciplines et matières à générer"
+
+    # 2. Verifier que ECOS est epingle au tout debut de l'arborescence des matieres
+    assert dialog.tree_widget.topLevelItemCount() == 2
+    top_item = dialog.tree_widget.topLevelItem(0)
+    assert "ECOS" in top_item.text(0)
+    assert top_item.data(0, 256) == "ECOS"
+
+    # 3. Verifier que la recherche sur 'ecos' et 'sdd' maintient ECOS visible
+    assert "ECOS" in dialog.specialty_items
+    ecos_item = dialog.specialty_items["ECOS"]
+    dialog.search_input.setText("ecos")
+    assert not ecos_item.isHidden()
+
+    dialog.search_input.setText("sdd")
+    assert not ecos_item.isHidden()
+
+    dialog.search_input.clear()

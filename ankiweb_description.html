@@ -1,6 +1,6 @@
 <h1>Anki EDN Installer &amp; Assistant de Configuration (Version Test)</h1>
 
-<div style="background-color: #fdf2f2; border: 1px solid #f8b4b4; border-left: 4px solid #e02424; padding: 12px 16px; margin-bottom: 20px; border-radius: 4px; color: #9b1c1c; font-size: 13px; line-height: 1.5;">
+<div style="background-color: #fdf2f2; border: 1px solid #f8b4b4; padding: 12px 16px; margin-bottom: 20px; border-radius: 4px; color: #9b1c1c; font-size: 13px; line-height: 1.5;">
   <strong style="text-transform: uppercase; letter-spacing: 0.5px;">Avertissement - Version de Test (BETA) :</strong><br>
   Cet add-on est un module d'integration et d'automatisation avance en version de test. Il modifie directement les preferences de synchronisation, l'organisation des paquets et la protection des champs de votre collection Anki.
 </div>
@@ -8,9 +8,8 @@
 <h2>Risques Encourus &amp; Precautions Imperatives</h2>
 <ul>
   <li><b>Modification automatique des preferences de profil :</b> L'assistant de configuration ajuste de facon globale vos options AnkiWeb (synchronisation a l'ouverture/fermeture, medias) et vos reglages AnkiCollab. Verifiez vos preferences apres execution.</li>
-  <li><b>Deplacement temporaire des cartes dans les paquets filtres :</b> La creation automatique de paquets filtres hierarchiques par matiere et par item extrait temporairement vos cartes de leurs paquets parents. En cas de synchronisation incomplete ou d'arret brutal, certaines cartes peuvent demeurer dans les paquets filtres jusqu'a l'execution de l'action <i>Vider les paquets filtres</i>.</li>
-  <li><b>Protection des champs et modifications de structure :</b> Le module de protection preserve vos annotations personnelles lors des synchronisations collaboratives. Toutefois, si les noms des champs sont renommes dans un type de note, les regles doivent etre revalidees dans les options.</li>
-  <li><b>Conflits possibles avec d'autres extensions tierces :</b> En patchant certains composants d'affichage et de navigation (WebEngine, boites de dialogue multi-fenetres), des incompatibilites peuvent apparaitre avec d'autres add-ons de customisation visuelle non verifies.</li>
+  <li><b>Deplacement temporaire des cartes dans les paquets filtres :</b> La creation automatique de paquets filtres hierarchiques par matiere et par item extrait temporairement vos cartes de leurs paquets parents. Avant toute synchronisation majeure ou desinstallation, utilisez l'action <i>Vider les paquets filtres</i> (<code>Ctrl + Alt + E</code>).</li>
+  <li><b>Protection des champs et modifications de structure :</b> Le module de protection preserve vos annotations personnelles lors des synchronisations collaboratives. Si les noms des champs sont renommes dans un type de note, les regles doivent etre revalidees dans les options.</li>
   <li><b>Precaution obligatoire :</b> Creez imperativement un point de sauvegarde complet (<b>Fichier &gt; Exporter &gt; Paquet de collection Anki .colpkg avec medias inclus</b>) avant d'executer l'assistant ou de manipuler les paquets filtres en masse.</li>
 </ul>
 
@@ -18,19 +17,21 @@
 
 <h2>Fonctionnalites Utiles</h2>
 <ul>
-  <li><b>Assistant de Configuration en 1 Clic :</b> Diagnostique l'environnement Anki et configure automatiquement les options vitales de synchronisation AnkiCollab et AnkiWeb.</li>
+  <li><b>Assistant d'Installation Complet (Anki EDN Setup) :</b> Synchronise AnkiWeb au prealable, installe automatiquement les extensions requises en 1 clic, guide l'abonnement AnkiCollab avec copie de la cle de partage et configure les options vitales de synchronisation.</li>
+  <li><b>Suivi Post-Mise a Jour :</b> Detecte apres chaque mise a jour du paquet les nouvelles cartes suspendues dans les items deja travailles (<code>EDN::item-*</code>) ainsi que les cartes apprises modifiees (<code>tag:MAJ::*</code>).</li>
   <li><b>Reparation et Alignement NID :</b> Verifie et retablit les identifiants uniques de notes (NID) indispensables au bon fonctionnement des liens bidirectionnels entre cartes medicales.</li>
   <li><b>Protection Active des Champs Utilisateur :</b> Empeche AnkiCollab d'ecraser vos remarques personnelles lors de l'incorporation des mises a jour collaboratives.</li>
-  <li><b>Generateur Hierarchique de Paquets Filtres :</b> Construit en quelques secondes l'arbre complet des paquets de revision par specialite et par item officiel EDN (367 items couverts).</li>
+  <li><b>Generateur Hierarchique de Paquets Filtres &amp; Deck ECOS :</b> Construit en quelques secondes l'arbre complet des paquets de revision par specialite et par item officiel EDN (367 items couverts), ainsi que la generation dediee du paquet filtre ECOS regroupant l'ensemble des Situations de Depart (balises EDN::SDD).</li>
+  <li><b>Outils de Revision et d'Edition :</b> Guide redactionnel et puces, importateur de symboles medicaux, ajout d'etiquette a la volee en revision (<code>Shift + T</code>), reglages visuels des cartes et rappel mensuel d'optimisation FSRS.</li>
   <li><b>Raccourcis de Productivite :</b>
     <ul>
       <li><code>Ctrl + Alt + F</code> : Ouvrir le generateur de paquets filtres.</li>
       <li><code>Ctrl + Alt + R</code> : Regenerer l'ensemble des paquets filtres EDN.</li>
       <li><code>Ctrl + Alt + E</code> : Vider instantanement les paquets filtres (restitue toutes les cartes a leurs paquets d'origine).</li>
+      <li><code>Shift + T</code> : Ouvrir l'ajout d'etiquette a la volee pendant la revision.</li>
     </ul>
   </li>
-  <li><b>Menu Centralise EDN :</b> Regroupe l'integralite des fonctionnalites, guides d'onboarding et outils du cursus au sein d'une entree sobre dans la barre de menu.</li>
-  <li><b>Gardes-Fous de Stabilite :</b> Protections integrees pour eviter les fermetures intempestives d'Anki lors des manipulations intensives de fenetres.</li>
+  <li><b>Menu Centralise Anki EDN :</b> Regroupe l'integralite des fonctionnalites, diagnostics et parametres du cursus au sein d'une entree sobre dans la barre de menu.</li>
 </ul>
 
 <hr>

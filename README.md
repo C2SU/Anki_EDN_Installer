@@ -4,7 +4,7 @@ Module central d'installation, d'orchestration et de gestion avancee pour l'ecos
 
 > [!CAUTION]
 > **Avertissement - Version de Test (BETA)**
-> Cet add-on est actuellement en version de test. Il applique des modifications automatiques aux preferences globales de profil Anki, orchestre des paquets filtres a grande echelle et injecte des mecanismes de protection sur les transactions locales.
+> Cet add-on applique des modifications automatiques aux preferences globales de profil Anki, orchestre des paquets filtres a grande echelle et injecte des mecanismes de protection sur les transactions locales.
 > **Une sauvegarde complete de votre profil Anki (export .colpkg avec medias) est imperative avant toute manipulation.**
 
 ---
@@ -22,25 +22,43 @@ L'utilisation de ce module d'automatisation implique la prise en compte des poin
 
 ## Fonctionnalites Principales
 
-- **Assistant de Configuration en 1 Clic :** Diagnostic automatique de l'installation et reglage instantane des options de synchronisation critiques AnkiCollab et AnkiWeb.
+- **Assistant d'Installation et de Configuration Unifié :**
+  - Parcours guidé en 3 étapes dynamiques : installation automatique des extensions requises, abonnement AnkiCollab surveillé en direct, puis application des réglages en un clic.
+  - Synchronisation AnkiWeb préalable pour éviter tout conflit appareil / AnkiWeb.
+  - Détection et téléchargement en 1 clic des extensions requises (AnkiCollab `1957538407`, BetterSearch `1052724801`, Symboles `1762336370`, Statistiques EDN `1201122026`, Lier les cartes `445658251`).
+  - Guidage d'abonnement au paquet AnkiCollab avec copie automatique de la clé de partage et détection en temps réel de l'arrivée du paquet `Anki EDN`.
+  - Application du préréglage de révision recommandé (`Anki EDN` : 30 nouvelles cartes/jour, 9999 révisions/jour, FSRS 88 %, seuil sangsue 20 échecs) et suspension initiale intelligente (distinction automatique entre nouveau profil et progression existante).
+- **Intégrité et Respect des Révisions de l'Étudiant :**
+  - Aucune désuspension intempestive de cartes au démarrage : l'étudiant reste maître du déblocage progressif de ses items et de ses rangs (A/B).
+  - Suppression des popups intrusifs de vérification automatique au lancement.
 - **Reparation des NID (Linked Cards) :** Analyse et resolution des identifiants uniques de notes pour maintenir l'integrite des renvois croises entre fiches medicales.
-- **Protection Active des Champs Utilisateur :** Empeche les fusions collaboratives d'effacer vos annotations et notes personnelles.
-- **Generateur Hierarchique de Paquets Filtres :** Creation automatisee de paquets filtres organises par matiere et par item (367 items EDN couverts).
-- **Raccourcis Clavier Dedies :**
+- **Protection Active des Champs Utilisateur :** Empeche les fusions collaboratives d'ecraser vos annotations et notes personnelles (`Notes personnelles`, `Moyens mnémotechniques`), avec empreinte locale de securite.
+- **Generateur Hierarchique de Paquets Filtres & Deck ECOS :** Creation automatisee de paquets filtres organises par specialite et par item (367 items EDN couverts), ainsi que generation dediee du paquet filtré ECOS regroupant l'ensemble des Situations de Depart (balises EDN::SDD).
+- **Actions Rapides sur Paquets Filtres (Page d'aperçu) :** Encart d'actions directes integre a chaque paquet filtre feuille :
+  - *Voir dans l'explorateur* : ouvre l'explorateur cible sur toutes les cartes de l'item / volet (actives et suspendues).
+  - *Dé-suspendre rangs A* : reactive en 1 clic les cartes de rang A restantes (avec compteur dynamique) et regenere le paquet.
+  - *Dé-suspendre tout* : reactive toutes les cartes suspendues de l'item et regenere le paquet.
+- **Outils d'Edition et de Revision Medicale :**
+  - **Guide Rédactionnel & Puces :** Normalisation typographique medicale et insertion de listes hierarchiques.
+  - **Importateur de Symboles :** Raccourcis de remplacement automatique (`->`, `>=`, `+-`, etc.) dans l'editeur.
+  - **Ajout d'Etiquette a la Volee (`Shift + T`) :** Edition rapide des tags de la note en cours de revision.
+  - **Reglages Visuels des Cartes :** Personnalisation de la police, de la taille et de l'affichage des bandeaux sur les cartes EDN.
+  - **Rappel d'Optimisation FSRS :** Suivi mensuel de l'optimisation des parametres FSRS.
+- **Raccourcis Clavier Dedies & Actions :**
   - `Ctrl + Alt + F` : Ouvrir l'interface du generateur de paquets filtres.
+  - `Génération du Deck ECOS (SDD)` : Bouton dédié et sélection au contact des matières dans le générateur de paquets filtrés.
   - `Ctrl + Alt + R` : Lancer la regeneration complete des paquets filtres EDN.
   - `Ctrl + Alt + E` : Vider integralement tous les paquets filtres EDN.
-- **Menu Centralise EDN :** Acces rapide et sobre a l'ensemble des modules, guides et preferences de la suite medicale.
-- **Gardes-Fous de Stabilite :** Mesures de securite logicielles pour prevenir les plantages lors des manipulations multi-fenetres.
+  - `Shift + T` : Ouvrir l'outil d'ajout d'etiquette a la volee pendant la revision.
 
 ---
 
 ## Utilisation
 
-1. Ouvrez Anki, puis rendez-vous dans le menu **EDN > Assistant de configuration EDN...**
-2. Cliquez sur les boutons de verification / configuration pour initialiser vos parametres globaux et securiser vos notes.
-3. Pour reviser un sous-ensemble precis du programme, ouvrez le generateur via **EDN > Paquets Filtrés > Générateur de paquets filtrés...** (`Ctrl + Alt + F`).
-4. Avant chaque synchronisation importante, assurez-vous de vider les paquets filtres via `Ctrl + Alt + E`.
+1. Ouvrez Anki, puis rendez-vous dans le menu **Anki EDN > Rétablir les réglages du tuto...** pour lancer l'assistant d'installation et de diagnostic.
+2. Pour verifier les cartes ajoutees ou modifiees apres une synchronisation AnkiCollab, cliquez sur **Anki EDN > Vérifier les nouveautés du paquet**.
+3. Pour reviser un sous-ensemble precis du programme, ouvrez le generateur via **Anki EDN > Paquets Filtrés > Générateur de paquets filtrés...** (`Ctrl + Alt + F`).
+4. Pour configurer les modules, les champs proteges, les styles de cartes ou les raccourcis, ouvrez **Anki EDN > Paramètres EDN...**.
 
 ---
 

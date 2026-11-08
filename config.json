@@ -1,4 +1,23 @@
 {
+    "deck_name": "Anki EDN",
+    "share_code": "mango-may-georgia-eleven-moon-orange",
+    "addons": [
+        1957538407,
+        501542723,
+        1052724801,
+        445658251,
+        2135076010,
+        303415230,
+        1906641654,
+        2040501954
+    ],
+    "preset_name": "Anki EDN",
+    "options": {
+        "new_per_day": 30,
+        "reviews_per_day": 9999,
+        "desired_retention": 0.88,
+        "leech_threshold": 20
+    },
     "modules": {
         "history": true,
         "fsrs_checker": true

@@ -171,18 +171,20 @@ class FSRSReminderDialog(QDialog):
 
     def setup_ui(self):
         T = self.t
+        self.setObjectName("fsrsReminderDialog")
         self.setWindowTitle("Rappel FSRS — Optimisation des parametres")
         self.setMinimumWidth(520)
 
         self.setStyleSheet(f"""
-            QDialog {{
+            QDialog#fsrsReminderDialog {{
                 background-color: {T['bg_dialog']};
                 color: {T['text_main']};
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
                 font-size: 13px;
             }}
-            QLabel {{
+            QDialog#fsrsReminderDialog QLabel {{
                 color: {T['text_main']};
+                background: transparent;
             }}
             QFrame.card {{
                 background-color: {T['bg_card']};

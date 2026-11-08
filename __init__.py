@@ -5,26 +5,35 @@ Modular addon system for Anki EDN deck tools and Installer.
 from aqt import mw
 from aqt.qt import *
 
-from .shared_menu import register_module, register_action, register_action_shortcut_only, get_edn_menu
+from .shared_menu import (
+    register_module,
+    should_initialize_module,
+    register_action,
+    register_action_shortcut_only,
+    get_edn_menu,
+)
 from .logger import log
 from . import multi_window
 
 def init_addon():
     get_edn_menu()
     
-    if register_module("fsrs_checker", "Vérificateur FSRS",
-                       "Vérifie les paramètres FSRS périodiquement"):
+    register_module("fsrs_checker", "Vérificateur FSRS",
+                    "Vérifie les paramètres FSRS périodiquement")
+    if should_initialize_module("fsrs_checker"):
         from .fsrs import init_fsrs
         init_fsrs()
         log("FSRS Checker module loaded.")
     
-    if register_module("card_styles", "Réglages Cartes",
-                       "Barre de rang A/B, pictogrammes de matière sur les cartes"):
+    register_module("card_styles", "Réglages Cartes",
+                    "Barre de rang A/B, pictogrammes de matière sur les cartes")
+    if should_initialize_module("card_styles"):
         # Initialisation automatique gérée via profile_did_open dans shared_menu.py
         pass
 
-    if register_module("filtered_decks", "Paquets Filtrés",
-                       "Génération hiérarchique de paquets filtrés par matière et par item"):
+    register_module("filtered_decks", "Paquets Filtrés",
+                    "Génération hiérarchique de paquets filtrés par matière et par item")
+    if should_initialize_module("filtered_decks"):
         try:
             from .filtered_decks import init_filtered_decks, rebuild_all_edn_filtered_decks, empty_all_edn_filtered_decks, get_edn_filtered_deck_ids
             from .filtered_decks_dialog import open_filtered_decks_dialog
@@ -33,7 +42,8 @@ def init_addon():
                 "filtered_decks",
                 "Générateur de paquets filtrés...",
                 open_filtered_decks_dialog,
-                shortcut="Ctrl+Alt+F"
+                shortcut="Ctrl+Alt+F",
+                shortcut_key="filtered_decks_generate"
             )
 
             def _quick_rebuild():
@@ -54,7 +64,8 @@ def init_addon():
                 "filtered_decks",
                 "Régénérer les paquets filtrés",
                 _quick_rebuild,
-                shortcut="Ctrl+Alt+R"
+                shortcut="Ctrl+Alt+R",
+                shortcut_key="filtered_decks_rebuild"
             )
 
             def _quick_empty():
@@ -73,7 +84,8 @@ def init_addon():
                 "filtered_decks",
                 "Vider les paquets filtrés",
                 _quick_empty,
-                shortcut="Ctrl+Alt+E"
+                shortcut="Ctrl+Alt+E",
+                shortcut_key="filtered_decks_empty"
             )
             log("Filtered Decks module loaded.")
         except Exception as e:

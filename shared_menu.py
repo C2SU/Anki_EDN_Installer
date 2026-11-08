@@ -266,8 +266,8 @@ def _ensure_standard_menu_actions(menu) -> None:
         txt = act.text() or ""
         obj = act.objectName() or ""
         if (
-            obj in ("EDN_Guide_Action", "EDN_Protect_Action", "EDN_Manual_Protect_Action")
-            or "Guide" in txt
+            obj in ("EDN_Guide_Action", "EDN_Protect_Action", "EDN_Manual_Protect_Action", "EDN_Check_Updates_Action")
+            or "Guide" in txt or "Vérifier les nouveautés" in txt
             or ("Prot" in txt and "champ" in txt.lower())
             or "Importer les symboles" in txt
             or "étiquette à la volée" in txt.lower()
@@ -394,7 +394,8 @@ def get_edn_menu():
 
         standard_labels = {
             "Paramètres EDN...",
-            "Rétablir les réglages du tuto..."
+            "Rétablir les réglages du tuto...",
+            "Vérifier les nouveautés du paquet"
         }
 
         seen_texts = set()

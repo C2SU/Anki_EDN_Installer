@@ -13,6 +13,7 @@ from .filtered_decks import (
     normalize_tag_key,
     analyze_edn_curriculum,
     generate_filtered_hierarchy,
+    generate_ecos_deck,
     empty_all_edn_filtered_decks,
     rebuild_all_edn_filtered_decks,
     delete_all_edn_filtered_decks,
@@ -40,6 +41,13 @@ class CurriculumTreeWidgetItem(QTreeWidgetItem):
     def __lt__(self, other: "QTreeWidgetItem") -> bool:
         tree = self.treeWidget()
         col = tree.sortColumn() if tree else 0
+        if getattr(self, "is_specialty", False) and getattr(other, "is_specialty", False) and col == 0:
+            sp1 = self.data(0, Qt.ItemDataRole.UserRole)
+            sp2 = other.data(0, Qt.ItemDataRole.UserRole)
+            if sp1 == "ECOS" and sp2 != "ECOS":
+                return True
+            if sp2 == "ECOS" and sp1 != "ECOS":
+                return False
         val1 = self.data(col, Qt.ItemDataRole.UserRole)
         val2 = other.data(col, Qt.ItemDataRole.UserRole)
         if val1 is not None and val2 is not None:
@@ -130,13 +138,13 @@ def get_theme_colors(is_dark: bool) -> dict:
 def build_dialog_stylesheet(c: dict) -> str:
     """Génère la feuille de style QSS adaptative et sans slop."""
     return f"""
-    QDialog {{
+    QDialog#filteredDecksDialog {{
         background-color: {c['bg_window']};
         color: {c['text_primary']};
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         font-size: 13px;
     }}
-    QLabel {{
+    QDialog#filteredDecksDialog QLabel {{
         color: {c['text_primary']};
         background: transparent;
     }}
@@ -265,6 +273,16 @@ def build_dialog_stylesheet(c: dict) -> str:
         background-color: {c['accent_hover']};
         border-color: {c['accent_hover']};
     }}
+    QPushButton#SecondaryAccentButton {{
+        background-color: {c['accent_subtle']};
+        color: {c['pill_text']};
+        border: 1px solid {c['pill_border']};
+        font-weight: 600;
+    }}
+    QPushButton#SecondaryAccentButton:hover {{
+        background-color: {c['pill_bg']};
+        border-color: {c['accent']};
+    }}
     QPushButton#DangerButton {{
         background-color: {c['danger_bg']};
         color: {c['danger']};
@@ -301,6 +319,7 @@ class FilteredDecksDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent or mw)
+        self.setObjectName("filteredDecksDialog")
         self.setWindowTitle("Générateur de Paquets Filtrés - Anki EDN")
         self.resize(860, 780)
         self.setMinimumSize(780, 640)
@@ -432,6 +451,12 @@ class FilteredDecksDialog(QDialog):
         collapse_all_btn.setObjectName("ToolBtn")
         collapse_all_btn.clicked.connect(lambda: self.tree_widget.collapseAll())
         action_bar.addWidget(collapse_all_btn)
+
+        self.ecos_btn = QPushButton("Générer le Deck ECOS")
+        self.ecos_btn.setObjectName("SecondaryAccentButton")
+        self.ecos_btn.setToolTip("Génère immédiatement le paquet filtré ECOS avec l'ensemble des Situations de Départ (EDN::SDD) selon les options de filtrage.")
+        self.ecos_btn.clicked.connect(self.on_generate_ecos_clicked)
+        action_bar.addWidget(self.ecos_btn)
 
         action_bar.addStretch()
 
@@ -628,7 +653,7 @@ class FilteredDecksDialog(QDialog):
         if filter_selected is not None:
             self.filter_only_selected_cb.setChecked(bool(filter_selected))
 
-    def load_data(self):
+    def load_data(self, curriculum_data: Optional[Dict[str, Any]] = None):
         """Charge l'analyse du curriculum EDN et construit l'arborescence."""
         try:
             sync_hierarchy_deck_options()
@@ -651,10 +676,14 @@ class FilteredDecksDialog(QDialog):
         self.specialty_items.clear()
 
         threshold = float(self.threshold_spin.value())
-        self.curriculum_data = analyze_edn_curriculum(threshold_pct=threshold)
+        if curriculum_data is not None:
+            self.curriculum_data = curriculum_data
+        else:
+            self.curriculum_data = analyze_edn_curriculum(threshold_pct=threshold)
         specialties = self.curriculum_data.get("specialties", {})
 
-        sorted_specs = sorted(specialties.keys())
+        other_specs = sorted([s for s in specialties.keys() if s != "ECOS"])
+        sorted_specs = (["ECOS"] if "ECOS" in specialties else []) + other_specs
         self._updating_checks = True
 
         try:
@@ -666,9 +695,10 @@ class FilteredDecksDialog(QDialog):
                 parent.is_specialty = True
                 parent.setFlags(parent.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 parent.setCheckState(0, Qt.CheckState.Unchecked)
-                parent.setText(0, sp)
+                disp_label = "ECOS (Situations de Départ)" if sp == "ECOS" else sp
+                parent.setText(0, disp_label)
                 parent.setData(0, Qt.ItemDataRole.UserRole, sp)
-                parent.setText(1, f"{data['item_count']} items")
+                parent.setText(1, f"{data['item_count']} SDD" if sp == "ECOS" else f"{data['item_count']} items")
                 parent.setData(1, Qt.ItemDataRole.UserRole, data['item_count'])
                 parent.setText(2, f"{data['total_cards']} cartes")
                 parent.setData(2, Qt.ItemDataRole.UserRole, data['total_cards'])
@@ -690,13 +720,20 @@ class FilteredDecksDialog(QDialog):
                     child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                     child.setCheckState(0, Qt.CheckState.Unchecked)
                     child.setText(0, it["label"])
-                    child.setData(0, Qt.ItemDataRole.UserRole, (it["item_num"], it["label"]))
-
-                    if child.has_subtags:
+                    if it.get("is_ecos_global"):
+                        child.setData(0, Qt.ItemDataRole.UserRole, (-1, it["label"]))
+                        child.setText(1, "Deck global")
+                        child.setData(1, Qt.ItemDataRole.UserRole, 0)
+                        f_glob = child.font(0)
+                        f_glob.setBold(True)
+                        child.setFont(0, f_glob)
+                    elif child.has_subtags:
+                        child.setData(0, Qt.ItemDataRole.UserRole, (it["item_num"], it["label"]))
                         sub_count = len(it.get("subtags", []))
                         child.setText(1, f"{sub_count} sous-parties")
                         child.setData(1, Qt.ItemDataRole.UserRole, sub_count)
                     else:
+                        child.setData(0, Qt.ItemDataRole.UserRole, (it["item_num"], it["label"]))
                         child.setText(1, f"{it['pct']:.0f} %")
                         child.setData(1, Qt.ItemDataRole.UserRole, it["pct"])
 
@@ -859,6 +896,8 @@ class FilteredDecksDialog(QDialog):
                 continue
 
             sp_norm = normalize_tag_key(sp)
+            if sp == "ECOS":
+                sp_norm = f"{sp_norm} sdd situations de depart"
             parent_matches = (not query) or (query in sp_norm)
 
             matching_children = 0
@@ -923,18 +962,36 @@ class FilteredDecksDialog(QDialog):
             state = parent.checkState(0)
             if state in (Qt.CheckState.Checked, Qt.CheckState.PartiallyChecked):
                 selected_specs_count += 1
-                for i in range(parent.childCount()):
-                    child = parent.child(i)
-                    if getattr(child, "has_subtags", False):
-                        for j in range(child.childCount()):
-                            sub_child = child.child(j)
-                            if sub_child.checkState(0) == Qt.CheckState.Checked:
-                                total_items += 1
-                                total_cards += getattr(sub_child, "spec_cards", 0)
+                if sp == "ECOS":
+                    # Pour ECOS, si le deck global est coché, compter 1 paquet et les cartes totales
+                    ecos_global_checked = False
+                    for i in range(parent.childCount()):
+                        child = parent.child(i)
+                        if child.checkState(0) == Qt.CheckState.Checked and getattr(child, "item_tag", "") == "EDN::SDD*":
+                            ecos_global_checked = True
+                            break
+                    if ecos_global_checked or state == Qt.CheckState.Checked:
+                        total_items += 1
+                        total_cards += parent.data(2, Qt.ItemDataRole.UserRole) or 0
                     else:
-                        if child.checkState(0) == Qt.CheckState.Checked:
-                            total_items += 1
-                            total_cards += getattr(child, "spec_cards", 0)
+                        for i in range(parent.childCount()):
+                            child = parent.child(i)
+                            if child.checkState(0) == Qt.CheckState.Checked:
+                                total_items += 1
+                                total_cards += getattr(child, "spec_cards", 0)
+                else:
+                    for i in range(parent.childCount()):
+                        child = parent.child(i)
+                        if getattr(child, "has_subtags", False):
+                            for j in range(child.childCount()):
+                                sub_child = child.child(j)
+                                if sub_child.checkState(0) == Qt.CheckState.Checked:
+                                    total_items += 1
+                                    total_cards += getattr(sub_child, "spec_cards", 0)
+                        else:
+                            if child.checkState(0) == Qt.CheckState.Checked:
+                                total_items += 1
+                                total_cards += getattr(child, "spec_cards", 0)
 
         if selected_specs_count == 0:
             self.summary_label.setText("Aucune discipline sélectionnée")
@@ -1102,6 +1159,51 @@ class FilteredDecksDialog(QDialog):
             self.accept()
         else:
             showWarning(f"Erreur lors de la génération : {res.get('error', 'Erreur inconnue')}", parent=self)
+
+    def on_generate_ecos_clicked(self):
+        """Génère spécifiquement le paquet filtré ECOS avec toutes les cartes EDN::SDD."""
+        self.save_current_settings()
+        card_filter = self.status_combo.currentData() or "due_and_new"
+        rank_filter = self.rank_combo.currentData() or "all"
+        order_val = self.order_combo.currentData() or "inherit"
+        resched = self.resched_checkbox.isChecked()
+
+        options = {
+            "root_name": ROOT_DECK_NAME,
+            "card_filter": card_filter,
+            "rank_filter": rank_filter,
+            "order": order_val,
+            "resched": resched,
+            "rebuild": True
+        }
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(50)
+        QApplication.processEvents()
+
+        try:
+            res = generate_ecos_deck(options=options)
+            if res.get("success"):
+                cards = res.get("cards_count", 0)
+                deck_name = res.get("deck_name", f"{ROOT_DECK_NAME}::ECOS")
+                showInfo(
+                    f"Le paquet filtré ECOS a été généré avec succès.\n\n"
+                    f"• Paquet : {deck_name}\n"
+                    f"• Cartes allouées : {cards}\n"
+                    f"• Filtre : Situations de Départ (EDN::SDD)\n\n"
+                    f"Le paquet est accessible dans la fenêtre principale d'Anki.",
+                    parent=self
+                )
+                if mw:
+                    mw.reset()
+                self.accept()
+            else:
+                showWarning(f"Erreur lors de la génération du Deck ECOS : {res.get('error', 'Erreur inconnue')}", parent=self)
+        except Exception as e:
+            log_error(f"Erreur génération Deck ECOS: {e}")
+            showWarning(f"Erreur lors de la génération du Deck ECOS : {e}", parent=self)
+        finally:
+            self.progress_bar.setVisible(False)
 
     def on_rebuild_clicked(self):
         """Reconstruit et réattribue les cartes dans tous les paquets filtrés existants."""

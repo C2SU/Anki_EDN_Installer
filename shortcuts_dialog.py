@@ -31,6 +31,7 @@ def is_dark_mode() -> bool:
 class ShortcutsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("ednShortcutsDialog")
         self.setWindowTitle("Configuration des Raccourcis - Anki EDN")
         self.setMinimumWidth(700)
         self.setMinimumHeight(420)
@@ -59,11 +60,11 @@ class ShortcutsDialog(QDialog):
         tooltip_border = "#334155" if dark else "#cbd5e1"
 
         self.setStyleSheet(f"""
-            QDialog {{
+            QDialog#ednShortcutsDialog {{
                 background-color: {bg_dialog};
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             }}
-            QLabel {{
+            QDialog#ednShortcutsDialog QLabel {{
                 border: none;
                 background: transparent;
                 color: {text_main};

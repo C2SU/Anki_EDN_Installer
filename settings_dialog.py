@@ -739,10 +739,11 @@ class EDNSettingsDialog(QDialog):
     def setup_ui(self, initial_tab=0):
 
         T = self.T
+        self.setObjectName("ednSettingsDialog")
 
         self.setStyleSheet(f"""
 
-            QDialog {{
+            QDialog#ednSettingsDialog {{
 
                 background-color: {T["bg_dialog"]};
 
@@ -750,7 +751,7 @@ class EDNSettingsDialog(QDialog):
 
             }}
 
-            QLabel {{
+            QDialog#ednSettingsDialog QLabel {{
 
                 border: none;
 

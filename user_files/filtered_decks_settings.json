@@ -1,12 +1,3 @@
 {
-  "selected_specs": [],
-  "selected_items": {},
-  "fully_checked_specs": [],
-  "threshold": 40,
-  "scope": "item_complet",
-  "card_filter": "due_and_new",
-  "rank_filter": "all",
-  "order": "inherit",
-  "resched": true,
-  "filter_only_selected": false
+  "auto_sync": true
 }

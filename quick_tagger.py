@@ -145,19 +145,21 @@ class QuickTagDialog(QDialog):
 
     def setup_ui(self):
         T = self.t
+        self.setObjectName("quickTagDialog")
         self.setWindowTitle("Ajout d'etiquette a la volee — Anki EDN")
         self.setMinimumWidth(480)
         self.setMinimumHeight(380)
 
         self.setStyleSheet(f"""
-            QDialog {{
+            QDialog#quickTagDialog {{
                 background-color: {T['bg_dialog']};
                 color: {T['text_main']};
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
                 font-size: 13px;
             }}
-            QLabel {{
+            QDialog#quickTagDialog QLabel {{
                 color: {T['text_main']};
+                background: transparent;
             }}
             QLineEdit {{
                 background-color: {T['bg_input']};
@@ -398,11 +400,18 @@ class QuickTagDialog(QDialog):
 
 
 def get_quick_tag_shortcut() -> str:
-    """Retrieve configured shortcut or default."""
+    """Retrieve configured shortcut via shared_menu broker or default."""
     cfg = get_config()
     shortcuts = cfg.get("shortcuts", {})
-    # Supports both specific action key and module id for full 1762336370 interoperability
-    return shortcuts.get("quick_tagger_reviewer") or shortcuts.get("quick_tagger") or DEFAULT_TAG_SHORTCUT
+    if "quick_tagger_reviewer" in shortcuts and shortcuts["quick_tagger_reviewer"]:
+        return shortcuts["quick_tagger_reviewer"]
+    if "quick_tagger" in shortcuts and shortcuts["quick_tagger"]:
+        return shortcuts["quick_tagger"]
+    try:
+        from .shared_menu import get_shortcut
+        return get_shortcut("quick_tagger_reviewer", DEFAULT_TAG_SHORTCUT)
+    except Exception:
+        return DEFAULT_TAG_SHORTCUT
 
 
 def open_quick_tag_dialog() -> None:

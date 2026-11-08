@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Tests unitaires pour l'assistant d'installation et de configuration EDN.
+Tests unitaires pour l'assistant d'installation et de configuration EDN (incluant anki_edn_setup).
 Vérifie la création du préréglage de révision FSRS 88%, l'assignation aux paquets EDN,
-la suspension ciblée des cartes taggées EDN, la détection des étapes déjà appliquées
-et la persistance au démarrage (une seule exécution à l'installation).
+la suspension ciblée des cartes taggées EDN, la détection des étapes déjà appliquées,
+la persistance d'état du profil (anki_edn_setup), la détection des extensions requises
+et la synchronisation préalable.
 """
 import os
+import time
 import tempfile
 import shutil
 from unittest.mock import MagicMock
@@ -23,9 +25,15 @@ from Anki_EDN_Installer.setup_assistant import (
     detect_nid_repair_status,
     detect_edn_preset_status,
     detect_initial_suspension_status,
+    detect_required_addons_status,
     detect_all_setup_statuses,
     EDNSetupAssistantDialog,
     check_startup_assistant,
+    get_state,
+    set_state,
+    missing_addons,
+    finalize,
+    sync_first_then,
 )
 
 
@@ -302,8 +310,6 @@ def test_detect_suspension_status_with_active_pool(temp_anki_col, monkeypatch):
     """Vérifie que detect_initial_suspension_status considère le deck déjà configuré si la majorité est suspendue ou apprise."""
     col, edn_did, other_did = temp_anki_col
 
-    # Mock collection find_cards
-    # Simulate 20 000 EDN cards with 2027 new unsuspended and 17 973 suspended / learned
     def fake_find_cards(query):
         if "is:new -is:suspended" in query:
             return list(range(2027))
@@ -323,3 +329,74 @@ def test_detect_suspension_status_with_active_pool(temp_anki_col, monkeypatch):
     assert status["badge"] == "Déjà configuré"
     assert "2027 actives" in status["details"] or "15000" in status["details"]
 
+
+def test_state_persistence_and_missing_addons(monkeypatch):
+    """Vérifie get_state/set_state et la détection des add-ons requis avec alias locaux."""
+    profile_dict = {}
+    fake_mw = MagicMock()
+    fake_mw.pm.profile = profile_dict
+    fake_mw.addonManager.getConfig.return_value = None
+    fake_mw.addonManager.allAddons.return_value = [
+        "1957538407",
+        "1052724801",
+        "1762336370",
+        "2110939339",
+        "24411424",
+        "2040501954",
+        "Anki_EDN_NID",             # Alias local pour 501542723
+        "Anki_EDN_Stats",           # Alias local pour 1201122026
+        "Anki_EDN_Lier_les_cartes", # Alias local pour 445658251
+    ]
+    monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.mw", fake_mw)
+
+    state = get_state()
+    assert state["stage"] == "start"
+    assert state["already_studied"] is False
+
+    set_state(stage="done", already_studied=True)
+    updated = get_state()
+    assert updated["stage"] == "done"
+    assert updated["already_studied"] is True
+
+    # Tous les add-ons requis sont installés (via ID ou alias local)
+    assert missing_addons() == []
+    status = detect_required_addons_status()
+    assert status["done"] is True
+    assert status["badge"] == "Déjà configuré"
+
+
+def test_finalize_distinguishes_already_studied(temp_anki_col, monkeypatch):
+    """Vérifie que finalize() ne suspend pas les cartes d'un ancien utilisateur (already_studied=True)."""
+    col, edn_did, other_did = temp_anki_col
+
+    profile_dict = {
+        "anki_edn_setup": {
+            "stage": "ankicollab",
+            "already_studied": True,
+        }
+    }
+    fake_mw = MagicMock()
+    fake_mw.col = col
+    fake_mw.pm.profile = profile_dict
+    fake_mw.addonManager.allAddons.return_value = []
+    monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.mw", fake_mw)
+    monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.showInfo", lambda *a, **kw: None)
+
+    finalize(col=col)
+
+    # Stage passé à done
+    assert get_state()["stage"] == "done"
+    # Les cartes EDN ne sont PAS suspendues car already_studied=True
+    for cid in col.find_cards('"deck:Anki EDN"'):
+        assert col.get_card(cid).queue == 0
+
+
+def test_sync_first_then_without_login(monkeypatch):
+    """Vérifie que sync_first_then exécute directement le callback si non connecté à AnkiWeb."""
+    fake_mw = MagicMock()
+    fake_mw.pm.sync_auth.return_value = None
+    monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.mw", fake_mw)
+
+    called = []
+    sync_first_then(lambda: called.append(True))
+    assert called == [True]
