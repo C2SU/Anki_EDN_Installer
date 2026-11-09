@@ -22,7 +22,9 @@ EXCLUDES = [
     "test_setup_assistant.py",
     "test_edn_redaction_and_fsrs.py",
     "test_migrate_edn_tags.py",
-    "console_migration_sdd.py"
+    "test_nid_repair.py",
+    "console_migration_sdd.py",
+    "update_nid_mapping.py"
 ]
 
 def should_exclude(rel_path):
@@ -34,7 +36,15 @@ def should_exclude(rel_path):
     return False
 
 def create_addon_package():
-    print(f"Packaging addon from: {SOURCE_DIR}")
+    # Actualisation prealable du mapping NID
+    try:
+        from update_nid_mapping import update_nid_mapping
+        print("Actualisation prealable du mapping NID...")
+        update_nid_mapping()
+    except Exception as e:
+        print(f"Note: actualisation du mapping ignoree ou echouee: {e}")
+
+    print(f"\nPackaging addon from: {SOURCE_DIR}")
     print(f"Destination: {DEST_PATH}")
     
     with zipfile.ZipFile(DEST_PATH, 'w', zipfile.ZIP_DEFLATED) as zipf:

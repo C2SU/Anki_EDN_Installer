@@ -31,7 +31,7 @@ L'utilisation de ce module d'automatisation implique la prise en compte des poin
 - **Intégrité et Respect des Révisions de l'Étudiant :**
   - Aucune désuspension intempestive de cartes au démarrage : l'étudiant reste maître du déblocage progressif de ses items et de ses rangs (A/B).
   - Suppression des popups intrusifs de vérification automatique au lancement.
-- **Reparation des NID (Linked Cards) :** Analyse et resolution des identifiants uniques de notes pour maintenir l'integrite des renvois croises entre fiches medicales.
+- **Réparation des NID (Linked Cards) :** Module natif intégrant la table d'identité des notes pour corriger et aligner automatiquement les identifiants (NID) dès la fin du téléchargement du paquet sur AnkiCollab ou à tout moment via les préférences Anki EDN (onglet Addons et Outils). L'extension externe de réparation des nids n'est plus requise ni proposée.
 - **Protection Active des Champs Utilisateur :** Empeche les fusions collaboratives d'ecraser vos annotations et notes personnelles (`Notes personnelles`, `Moyens mnémotechniques`), avec empreinte locale de securite.
 - **Generateur Hierarchique de Paquets Filtres & Deck ECOS :** Creation automatisee de paquets filtres organises par specialite et par item (367 items EDN couverts), ainsi que generation dediee du paquet filtré ECOS regroupant l'ensemble des Situations de Depart (balises EDN::SDD).
 - **Actions Rapides sur Paquets Filtres (Page d'aperçu) :** Encart d'actions directes integre a chaque paquet filtre feuille :
@@ -41,7 +41,7 @@ L'utilisation de ce module d'automatisation implique la prise en compte des poin
 - **Outils d'Edition et de Revision Medicale :**
   - **Guide Rédactionnel & Puces :** Normalisation typographique medicale et insertion de listes hierarchiques.
   - **Importateur de Symboles :** Raccourcis de remplacement automatique (`->`, `>=`, `+-`, etc.) dans l'editeur.
-  - **Ajout d'Etiquette a la Volee (`Shift + T`) :** Edition rapide des tags de la note en cours de revision.
+  - **Ajout d'Etiquette a la Volee :** Transféré et intégré à l'add-on *Anki EDN - Lier les cartes* (raccourci `T` par défaut) pour bénéficier du moteur de suggestions intelligentes basé sur vos étiquettes réelles.
   - **Reglages Visuels des Cartes :** Personnalisation de la police, de la taille et de l'affichage des bandeaux sur les cartes EDN.
   - **Rappel d'Optimisation FSRS :** Suivi mensuel de l'optimisation des parametres FSRS.
 - **Raccourcis Clavier Dedies & Actions :**
@@ -49,7 +49,7 @@ L'utilisation de ce module d'automatisation implique la prise en compte des poin
   - `Génération du Deck ECOS (SDD)` : Bouton dédié et sélection au contact des matières dans le générateur de paquets filtrés.
   - `Ctrl + Alt + R` : Lancer la regeneration complete des paquets filtres EDN.
   - `Ctrl + Alt + E` : Vider integralement tous les paquets filtres EDN.
-  - `Shift + T` : Ouvrir l'outil d'ajout d'etiquette a la volee pendant la revision.
+  - *(Fonctionnalité d'ajout d'étiquette à la volée migrée dans l'add-on Lier les cartes)*
 
 ---
 
@@ -66,4 +66,4 @@ L'utilisation de ce module d'automatisation implique la prise en compte des poin
 
 - Anki 23.10+, Anki 24.x, Anki 25.x+
 - PyQt6 / Qt6
-- Fonctionne en synergie avec la suite officielle : Lier les cartes, EDN Stats, NID, AnkiCollab
+- Fonctionne en synergie avec la suite officielle : Lier les cartes, EDN Stats, AnkiCollab

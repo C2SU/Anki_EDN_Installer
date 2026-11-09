@@ -249,30 +249,31 @@ class QuickTagDialog(QDialog):
         self.scroll.setWidget(self.pills_container)
         layout.addWidget(self.scroll)
 
-        # Suggestions section
-        sug_label = QLabel("Suggestions rapides :")
-        sug_label.setStyleSheet(f"color: {T['text_muted']}; font-size: 11.5px; margin-top: 4px;")
-        layout.addWidget(sug_label)
-
-        sug_layout = QHBoxLayout()
-        sug_layout.setSpacing(6)
-        for sug in SUGGESTED_EDN_TAGS[:5]:
-            btn = QPushButton(sug)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    font-size: 11px;
-                    padding: 3px 8px;
-                    background-color: {T['pill_bg']};
-                    border: 1px solid {T['pill_border']};
-                }}
-                QPushButton:hover {{
-                    border-color: {T['accent']};
-                }}
-            """)
-            btn.clicked.connect(lambda checked, s=sug: self.toggle_suggested_tag(s))
-            sug_layout.addWidget(btn)
-        sug_layout.addStretch()
-        layout.addLayout(sug_layout)
+        # Suggestions section - desactivees temporairement
+        SHOW_SUGGESTIONS = False
+        if SHOW_SUGGESTIONS and SUGGESTED_EDN_TAGS:
+            sug_label = QLabel("Suggestions rapides :")
+            sug_label.setStyleSheet(f"color: {T['text_muted']}; font-size: 11.5px; margin-top: 4px;")
+            layout.addWidget(sug_label)
+            sug_layout = QHBoxLayout()
+            sug_layout.setSpacing(6)
+            for sug in SUGGESTED_EDN_TAGS[:5]:
+                btn = QPushButton(sug)
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        font-size: 11px;
+                        padding: 3px 8px;
+                        background-color: {T['pill_bg']};
+                        border: 1px solid {T['pill_border']};
+                    }}
+                    QPushButton:hover {{
+                        border-color: {T['accent']};
+                    }}
+                """)
+                btn.clicked.connect(lambda checked, s=sug: self.toggle_suggested_tag(s))
+                sug_layout.addWidget(btn)
+            sug_layout.addStretch()
+            layout.addLayout(sug_layout)
 
         layout.addStretch()
 

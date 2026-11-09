@@ -130,21 +130,16 @@ def init_addon():
     except Exception as e:
         log(f"Erreur chargement editor_bullet_guide: {e}")
 
+    # Quick Tagger a été migré vers l'add-on Anki_EDN_Lier_les_cartes pour bénéficier
+    # du moteur de suggestions contextuelles prédictives adaptées aux tags de l'utilisateur.
+    log("Quick tagger : fonctionnalité transférée vers Anki_EDN_Lier_les_cartes.")
+
     try:
-        from .quick_tagger import init_quick_tagger_hooks, get_quick_tag_shortcut
-        if register_module("quick_tagger", "Ajout de tag à la volée",
-                           "Étiquetage rapide en cours de révision"):
-            init_quick_tagger_hooks()
-            register_action_shortcut_only(
-                "quick_tagger",
-                "Ajouter une étiquette à la volée (Révision)",
-                callback=lambda: None,
-                shortcut=get_quick_tag_shortcut(),
-                shortcut_key="quick_tagger_reviewer"
-            )
-            log("Quick tagger module loaded.")
+        from .nid_repair import init_nid_repair_hooks
+        init_nid_repair_hooks()
+        log("NID repair hooks loaded.")
     except Exception as e:
-        log(f"Erreur chargement quick_tagger: {e}")
+        log(f"Erreur chargement nid_repair: {e}")
 
     log("Anki EDN Installer loaded successfully.")
 

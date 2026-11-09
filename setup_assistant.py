@@ -235,14 +235,11 @@ def find_menu_action(menu_name: str, keyword: str) -> Optional[QAction]:
 
 
 def trigger_nid_repair() -> bool:
-    """Trigger NID repair via menu action or direct repair function."""
-    action = find_menu_action("Anki EDN", "NID")
-    if action:
-        action.trigger()
-        return True
+    """Trigger NID repair via direct module function."""
     try:
-        ok, _ = repair_nids_and_sync()
-        return ok
+        from .nid_repair import migrate_nids
+        updated, _ = migrate_nids(silent=False, trigger_sync=True)
+        return True
     except Exception:
         return False
 
@@ -611,123 +608,23 @@ def detect_global_settings_status() -> dict:
 # -----------------------------------------------------------------------------
 
 def _get_nid_mapping_path() -> Optional[str]:
-    search_dirs = []
-    if mw and hasattr(mw, "addonManager"):
-        user_files_dir = os.path.join(mw.addonManager.addonsFolder(), "Anki_EDN_nid", "user_files")
-        search_dirs.append(user_files_dir)
-        user_files_inst = os.path.join(mw.addonManager.addonsFolder(), "Anki_EDN_Installer", "user_files")
-        search_dirs.append(user_files_inst)
-    cur_dir = os.path.dirname(os.path.abspath(__file__))
-    search_dirs.append(os.path.join(cur_dir, "user_files"))
-
-    for d in search_dirs:
-        candidate = os.path.join(d, "nids_list.json")
-        if os.path.isfile(candidate):
-            return candidate
-    return None
+    from .nid_repair import get_nid_mapping_path as _get
+    return _get()
 
 
 def repair_nids_and_sync(col=None) -> Tuple[bool, str]:
     """Execute NID repair on the collection and trigger AnkiWeb synchronization."""
-    if col is None and mw:
-        col = mw.col
-    if not col:
-        return False, "Collection Anki non disponible."
-
+    from .nid_repair import migrate_nids
     mapping_file = _get_nid_mapping_path()
-    if not mapping_file:
-        return False, "Fichier nids_list.json introuvable."
-
-    try:
-        with open(mapping_file, "r", encoding="utf-8") as f:
-            mapping = json.load(f)
-    except Exception as e:
-        return False, f"Erreur lecture nids_list.json : {e}"
-
-    if not isinstance(mapping, dict) or not mapping:
-        return False, "Le dictionnaire nids_list.json est vide."
-
-    repaired_count = 0
-    try:
-        for old_nid_str, new_nid in mapping.items():
-            try:
-                old_nid = int(old_nid_str)
-                new_nid = int(new_nid)
-            except (ValueError, TypeError):
-                continue
-            if old_nid == new_nid:
-                continue
-            note = col.get_note(old_nid)
-            if note is None:
-                continue
-            if "NID" in note:
-                if note["NID"] != str(new_nid):
-                    note["NID"] = str(new_nid)
-                    col.update_note(note)
-                    repaired_count += 1
-    except Exception as e:
-        return False, f"Erreur lors de la mise à jour des NID : {e}"
-
-    if mw and hasattr(mw, "on_sync_button_clicked"):
-        try:
-            mw.on_sync_button_clicked()
-        except Exception:
-            pass
-
-    return True, f"Réparation des NID terminée ({repaired_count} carte(s) mise(s) à jour)."
+    updated, msg = migrate_nids(col=col, auto=False, silent=False, trigger_sync=True, mapping_file=mapping_file)
+    return True, msg
 
 
 def detect_nid_repair_status(col=None) -> dict:
     """Detect whether note IDs for linked cards are already aligned with admin mapping."""
-    if col is None and mw:
-        col = mw.col
-    if not col:
-        return {"done": True, "badge": "À jour", "details": "Collection non disponible", "pending": 0}
-
+    from .nid_repair import detect_nid_repair_status as _detect
     mapping_file = _get_nid_mapping_path()
-    if not mapping_file or not os.path.exists(mapping_file):
-        return {"done": True, "badge": "À jour", "details": "Module NID absent ou déjà synchronisé", "pending": 0}
-
-    try:
-        lines = []
-        try:
-            with open(mapping_file, "r", encoding="utf-8") as f:
-                raw_json = json.load(f)
-                if isinstance(raw_json, dict):
-                    # Format JSON: {"old_nid": new_nid, ...}
-                    lines = [f"guid,{nid}" for nid in raw_json.values()]
-        except Exception:
-            with open(mapping_file, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-
-        local_notes = dict(col.db.all("SELECT guid, id FROM notes"))
-        if not local_notes:
-            return {"done": True, "badge": "À jour", "details": "Aucune note présente", "pending": 0}
-
-        pending = 0
-        matched = 0
-        for line in lines:
-            line = line.strip()
-            if not line or "," not in line:
-                continue
-            guid, nid_str = line.rsplit(",", 1)
-            try:
-                admin_nid = int(nid_str)
-            except ValueError:
-                continue
-            local_nid = local_notes.get(guid)
-            if local_nid is not None:
-                matched += 1
-                if local_nid != admin_nid:
-                    pending += 1
-
-        if matched == 0:
-            return {"done": True, "badge": "À jour", "details": "Aucune carte liée EDN dans la collection", "pending": 0}
-        if pending == 0:
-            return {"done": True, "badge": "Déjà synchronisé", "details": f"{matched} notes liées déjà synchronisées", "pending": 0}
-        return {"done": False, "badge": f"{pending} à réparer", "details": f"{pending} NID(s) à réaligner", "pending": pending}
-    except Exception as e:
-        return {"done": True, "badge": "À jour", "details": f"Vérification ignorée: {e}", "pending": 0}
+    return _detect(col=col, mapping_file=mapping_file)
 
 
 # -----------------------------------------------------------------------------
@@ -1332,6 +1229,11 @@ class EDNSetupAssistantDialog(QDialog):
             if self._poll_timer:
                 self._poll_timer.stop()
                 self._poll_timer = None
+            try:
+                from .nid_repair import migrate_nids
+                migrate_nids(col=self.active_col, auto=True, silent=True, trigger_sync=False)
+            except Exception:
+                pass
             self.statuses = detect_all_setup_statuses(col=self.active_col)
             self._rebuild_presets_page()
             self._switch_page(2)

@@ -1,4 +1,4 @@
-<h1>Anki EDN Installer &amp; Assistant de Configuration (Version Test)</h1>
+<h1>Anki EDN Assistant (Version Test)</h1>
 
 <div style="background-color: #fdf2f2; border: 1px solid #f8b4b4; padding: 12px 16px; margin-bottom: 20px; border-radius: 4px; color: #9b1c1c; font-size: 13px; line-height: 1.5;">
   <strong style="text-transform: uppercase; letter-spacing: 0.5px;">Avertissement - Version de Test (BETA) :</strong><br>
@@ -19,10 +19,10 @@
 <ul>
   <li><b>Assistant d'Installation Complet (Anki EDN Setup) :</b> Synchronise AnkiWeb au prealable, installe automatiquement les extensions requises en 1 clic, guide l'abonnement AnkiCollab avec copie de la cle de partage et configure les options vitales de synchronisation.</li>
   <li><b>Suivi Post-Mise a Jour :</b> Detecte apres chaque mise a jour du paquet les nouvelles cartes suspendues dans les items deja travailles (<code>EDN::item-*</code>) ainsi que les cartes apprises modifiees (<code>tag:MAJ::*</code>).</li>
-  <li><b>Reparation et Alignement NID :</b> Verifie et retablit les identifiants uniques de notes (NID) indispensables au bon fonctionnement des liens bidirectionnels entre cartes medicales.</li>
+  <li><b>Reparation et Alignement NID Integres :</b> Verifie et retablit automatiquement les identifiants uniques de notes (NID) des la fin du telechargement du paquet sur AnkiCollab pour assurer le fonctionnement immediat des liens bidirectionnels, sans necessiter d'extension supplementaire. Disponible egalement a la fin de l'onglet Addons et Outils des preferences.</li>
   <li><b>Protection Active des Champs Utilisateur :</b> Empeche AnkiCollab d'ecraser vos remarques personnelles lors de l'incorporation des mises a jour collaboratives.</li>
   <li><b>Generateur Hierarchique de Paquets Filtres &amp; Deck ECOS :</b> Construit en quelques secondes l'arbre complet des paquets de revision par specialite et par item officiel EDN (367 items couverts), ainsi que la generation dediee du paquet filtre ECOS regroupant l'ensemble des Situations de Depart (balises EDN::SDD).</li>
-  <li><b>Outils de Revision et d'Edition :</b> Guide redactionnel et puces, importateur de symboles medicaux, ajout d'etiquette a la volee en revision (<code>Shift + T</code>), reglages visuels des cartes et rappel mensuel d'optimisation FSRS.</li>
+  <li><b>Outils de Revision et d'Edition :</b> Guide redactionnel et puces, importateur de symboles medicaux, ajout d'etiquette a la volee (transfere et optimise dans l'add-on Lier les cartes), reglages visuels des cartes et rappel mensuel d'optimisation FSRS.</li>
   <li><b>Raccourcis de Productivite :</b>
     <ul>
       <li><code>Ctrl + Alt + F</code> : Ouvrir le generateur de paquets filtres.</li>
@@ -40,5 +40,13 @@
 <ul>
   <li>Anki 23.10+, Anki 24.x, Anki 25.x+</li>
   <li>Environnements Qt6 (PyQt6) sous Windows, macOS et Linux</li>
-  <li>Coordonne nativement la suite EDN : Lier les cartes, EDN Stats, NID, AnkiCollab</li>
+  <li>Coordonne nativement la suite EDN : Lier les cartes, EDN Stats, AnkiCollab</li>
 </ul>
+
+<hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+
+<h2>Credits</h2>
+<p style="font-size: 13px; color: #475569; line-height: 1.6;">
+  <b>Author &amp; Maintainer :</b> Angelo Marcis (<a href="https://github.com/Ficello" style="color: #2563eb; text-decoration: none;">GitHub</a>)<br>
+  <b>Source Code Repository :</b> <a href="https://github.com/Ficello/Anki_EDN_Installer" style="color: #2563eb; text-decoration: none;">github.com/Ficello/Anki_EDN_Installer</a>
+</p>

@@ -120,23 +120,6 @@ RECOMMENDED_ADDONS_CATALOG = [
 
     },
 
-    {
-
-        "id": "2135076010",
-
-        "alt_ids": ["Anki_EDN_nid", "2135076010"],
-
-        "module_id": "anki_edn_nid",
-
-        "name": "Anki EDN NID (Réparer NID)",
-
-        "description": "Migration et synchronisation des identifiants (NID) des notes.",
-
-        "url": "https://ankiweb.net/shared/info/2135076010",
-
-        "is_core_edn": True,
-
-    },
 
     {
 
@@ -1792,7 +1775,54 @@ class EDNSettingsDialog(QDialog):
 
         container_layout.addWidget(redac_frame)
 
+        # ── Maintenance et Réparation des NID ──
+        nid_header = make_selectable_label(
+            f"<b style='font-size: 13px; color: {T['text_main']};'>Maintenance et Réparation des NID</b>"
+        )
+        container_layout.addWidget(nid_header)
 
+        nid_frame = QFrame()
+        nid_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {T["bg_card"]};
+                border: 1px solid {T["border_card"]};
+                border-radius: 6px;
+            }}
+        """)
+        nid_layout = QVBoxLayout(nid_frame)
+        nid_layout.setContentsMargins(14, 10, 14, 10)
+        nid_layout.setSpacing(8)
+
+        nid_desc = make_selectable_label(
+            f"<span style='font-size: 11.5px; color: {T['text_muted']};'>"
+            "Harmonise les identifiants de notes (NID) de votre collection locale avec la base officielle AnkiCollab. "
+            "Cette opération est exécutée automatiquement après le téléchargement du deck ou peut être lancée manuellement ici."
+            "</span>"
+        )
+        nid_layout.addWidget(nid_desc)
+
+        nid_btn_row = QHBoxLayout()
+        self.btn_repair_nid = QPushButton("Réparer les NID")
+        self.btn_repair_nid.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T['btn_default_bg']}; color: {T['btn_default_text']};
+                border: 1px solid {T['btn_default_border']};
+                padding: 6px 12px; border-radius: 5px; font-weight: 600; font-size: 11.5px;
+            }}
+            QPushButton:hover {{
+                background-color: {T['btn_default_hover']}; color: {T['text_main']};
+            }}
+        """)
+        self.btn_repair_nid.setToolTip(
+            "Met à jour les NID locaux de vos notes EDN conformément au mapping officiel\n"
+            "pour assurer la compatibilité des liens entre cartes et la synchronisation."
+        )
+        self.btn_repair_nid.clicked.connect(self._on_repair_nid_clicked)
+        nid_btn_row.addWidget(self.btn_repair_nid)
+        nid_btn_row.addStretch()
+        nid_layout.addLayout(nid_btn_row)
+
+        container_layout.addWidget(nid_frame)
 
         container_layout.addStretch()
 
@@ -4236,4 +4266,19 @@ class EDNSettingsDialog(QDialog):
         dialog = ShortcutsDialog(self)
 
         dialog.exec()
+
+    def _on_repair_nid_clicked(self) -> None:
+        """Lance manuellement la réparation des NID depuis l'onglet des préférences."""
+        try:
+            try:
+                from .nid_repair import migrate_nids
+            except ImportError:
+                try:
+                    from nid_repair import migrate_nids
+                except ImportError:
+                    from Anki_EDN_Installer.nid_repair import migrate_nids
+            migrate_nids(silent=False)
+        except Exception as e:
+            from aqt.utils import showCritical
+            showCritical(f"Erreur lors de la réparation des NID :\n{str(e)}", parent=self)
 
