@@ -28,8 +28,6 @@ BULLET_TARGET_FIELDS = {
     "verso",
     "answer",
     "description",
-    "infos supplémentaires",
-    "infos supplementaires",
 }
 EMPTY_BULLET_PATTERNS = {
     "<ul><li><br></li></ul>",
@@ -49,9 +47,31 @@ def is_bullet_guide_enabled() -> bool:
     return bool(cfg.get("auto_bullet_in_editor", True))
 
 
-def is_edn_notetype_for_bullets(note) -> bool:
-    """Check if note belongs to an EDN notetype where bullet lists are standard."""
+def is_cloze_note(note) -> bool:
+    """Return True if note belongs to a cloze (texte à trous) note type."""
     if not note:
+        return False
+    try:
+        nt = note.note_type() if hasattr(note, "note_type") else None
+        if nt:
+            # Anki note type model: 1 indicates MODEL_CLOZE
+            if nt.get("type") == 1:
+                return True
+            name = nt.get("name", "").lower()
+            if any(k in name for k in ("trou", "trous", "cloze")):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def is_edn_notetype_for_bullets(note) -> bool:
+    """Check if note belongs to an EDN notetype where bullet lists are standard.
+    Excludes cloze (texte à trous) cards.
+    """
+    if not note:
+        return False
+    if is_cloze_note(note):
         return False
     try:
         nt = note.note_type() if hasattr(note, "note_type") else None
@@ -160,8 +180,8 @@ def _on_editor_will_load_note(js: str, note: Any, editor: Editor) -> str:
 
     target_json = json.dumps(target_indices)
 
-    # Client-side listener: When focusing an empty target field (Verso, Description,
-    # Infos supplémentaires, Erreurs faites), automatically initialize an unordered list.
+    # Client-side listener: When focusing an empty target field (Verso, Description),
+    # automatically initialize an unordered list.
     bullet_js = f"""
     (function() {{
         try {{

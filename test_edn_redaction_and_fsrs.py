@@ -21,6 +21,7 @@ from Anki_EDN_Installer.symbols_importer import (
     is_symbols_addon_installed,
 )
 from Anki_EDN_Installer.editor_bullet_guide import (
+    is_cloze_note,
     is_edn_notetype_for_bullets,
     is_field_empty,
     apply_initial_bullet_to_note,
@@ -137,6 +138,11 @@ def test_is_edn_notetype_for_bullets():
     n_semio = DummyNote("Sémiologie-EDN-Picat-f482c", {"Nom": "", "Description": ""})
     assert is_edn_notetype_for_bullets(n_semio) is True
 
+    # Cloze / Texte à trous notes should NOT propose bullets even with EDN tags/name
+    n_cloze_edn = DummyNote("Texte à trous-EDN-Picat-918aa", {"Texte": "", "Infos supplémentaires": ""}, tags=["EDN::Item"])
+    assert is_cloze_note(n_cloze_edn) is True
+    assert is_edn_notetype_for_bullets(n_cloze_edn) is False
+
     n_generic = DummyNote("Basic", {"Front": "", "Back": ""})
     assert is_edn_notetype_for_bullets(n_generic) is False
 
@@ -145,13 +151,15 @@ def test_apply_initial_bullet_to_note():
     """Verify pre-populating empty target fields (Verso, Description) with bullets."""
     note = DummyNote(
         "Basique-EDN-Picat-8b691",
-        {"Recto": "Question text", "Verso": "", "Erreurs faites": ""}
+        {"Recto": "Question text", "Verso": "", "Infos supplémentaires": "", "Erreurs faites": ""}
     )
     changed = apply_initial_bullet_to_note(note)
     assert changed is True
     assert note["Verso"] == DEFAULT_INITIAL_BULLET
     # Recto should not be modified
     assert note["Recto"] == "Question text"
+    # Infos supplémentaires should never receive bullets on any note type
+    assert note["Infos supplémentaires"] == ""
     # Personal field should not be modified
     assert note["Erreurs faites"] == ""
 
@@ -308,7 +316,7 @@ def test_setup_assistant_detects_symbols_status():
 
 
 def test_shared_menu_register_action_shortcut_key():
-    """Verify register_action supports custom shortcut_key for 1762336370 scanner."""
+    """Verify register_action supports custom shortcut_key for 353547840 / 1762336370 shortcuts manager scanner."""
     from aqt.qt import QApplication, QMenu
     app = QApplication.instance() or QApplication([])
     from Anki_EDN_Installer.shared_menu import register_module, register_action, _get_registry

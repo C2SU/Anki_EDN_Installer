@@ -16,6 +16,8 @@ from __future__ import annotations
 import os
 import json
 import time
+import importlib
+import webbrowser
 from typing import Optional, Tuple, Dict, Any, List, Callable
 
 from aqt import mw, gui_hooks
@@ -36,32 +38,36 @@ DEFAULT_SETUP_CONFIG: Dict[str, Any] = {
     "addons": [
         1957538407,
         1052724801,
-        1762336370,
-        1201122026,
+        2040501954,
+        1674438508,
         445658251,
     ],
     "preset_name": "Anki EDN",
     "options": {
-        "new_per_day": 30,
+        "new_per_day": 50,
         "reviews_per_day": 9999,
         "desired_retention": 0.88,
-        "leech_threshold": 20,
+        "leech_threshold": 12,
     },
 }
 
 ADDON_NAMES: Dict[int, str] = {
     1957538407: "AnkiCollab (synchronisation collaborative du paquet)",
     1052724801: "BetterSearch (recherche avancée par étiquette)",
-    1762336370: "Insert Symbols As You Type (symboles médicaux)",
-    1201122026: "Anki EDN Stats (statistiques d'avancement par item)",
+    2040501954: "Symbols As You Type (symboles médicaux)",
+    353547840: "Customize Keyboard Shortcuts (gestionnaire de raccourcis clavier)",
+    1674438508: "EDN Stat (statistiques d'avancement par item)",
     445658251: "Anki EDN Lier les cartes (navigation entre cartes liées)",
 }
 
 ADDON_LOCAL_ALIASES: Dict[int, Tuple[str, ...]] = {
-    445658251: ("445658251", "Anki_EDN_Lier_les_cartes"),
-    1201122026: ("1201122026", "Anki_EDN_Stats"),
+    445658251: ("445658251", "Anki_EDN_Lier_les_cartes", "Lier_cartes_anki_EDN"),
+    1674438508: ("1674438508", "1201122026", "Anki_EDN_Stats"),
+    1201122026: ("1674438508", "1201122026", "Anki_EDN_Stats"),
     2135076010: ("2135076010", "Anki_EDN_nid", "Anki_EDN_NID"),
     1957538407: ("1957538407", "AnkiCollab"),
+    2040501954: ("2040501954", "Symbols As You Type"),
+    353547840: ("353547840", "1762336370", "Customize Keyboard Shortcuts", "Customize Keyboard Shortcuts (Enhanced Edition)"),
 }
 
 ANKICOLLAB_WINDOW_HINTS = (
@@ -272,12 +278,22 @@ def install_addons(on_complete: Optional[Callable] = None) -> None:
     """Download and install missing required add-ons from AnkiWeb."""
     missing = missing_addons()
     if not missing:
+        try:
+            from .symbols_importer import import_edn_symbols
+            import_edn_symbols(force=True)
+        except Exception:
+            pass
         set_state(stage="addons_installed")
         if on_complete:
             on_complete()
         return
 
     def on_done(log) -> None:
+        try:
+            from .symbols_importer import import_edn_symbols
+            import_edn_symbols(force=True)
+        except Exception:
+            pass
         set_state(stage="addons_installed")
         if on_complete:
             on_complete()
@@ -313,7 +329,7 @@ def detect_required_addons_status() -> dict:
 
 
 # -----------------------------------------------------------------------------
-# 2. Step 2: AnkiCollab Guided Subscription & Deck Polling
+# 2. Step 2: AnkiCollab Direct Subscription & Deck Polling
 # -----------------------------------------------------------------------------
 
 def ankicollab_window_open() -> bool:
@@ -329,13 +345,45 @@ def ankicollab_window_open() -> bool:
     return False
 
 
-def guide_ankicollab(deck_present: bool = False) -> None:
-    """Copy share code to clipboard, configure global AnkiCollab settings, and open AnkiCollab window."""
-    code = cfg().get("share_code", DEFAULT_SETUP_CONFIG["share_code"])
+def is_ankicollab_logged_in() -> bool:
+    """Return True if the user is currently authenticated in AnkiCollab (1957538407)."""
+    try:
+        am_mod = importlib.import_module("1957538407.auth_manager")
+        return bool(am_mod.auth_manager.is_logged_in())
+    except Exception:
+        return False
+
+
+def open_ankicollab_subscription_window() -> bool:
+    """Open the standard AnkiCollab Manage Subscriptions dialog as manual fallback."""
+    action = find_menu_action("AnkiCollab", "subscription") or find_menu_action(
+        "AnkiCollab", "settings"
+    )
+    if action:
+        action.trigger()
+        return True
+    return False
+
+
+def subscribe_ankicollab_directly(
+    code: Optional[str] = None, parent: Optional[QWidget] = None
+) -> Tuple[bool, str]:
+    """
+    Register the Anki EDN subscription directly via AnkiCollab's Python API (1957538407)
+    and start pulling the deck, prompting LoginDialog first if not yet signed in.
+    """
+    c = cfg()
+    sub_code = (
+        code
+        or c.get("share_code")
+        or c.get("ankicollab_code")
+        or DEFAULT_SETUP_CONFIG["share_code"]
+    ).strip()
+
     try:
         clipboard = QApplication.clipboard()
         if clipboard is not None:
-            clipboard.setText(code)
+            clipboard.setText(sub_code)
     except Exception:
         pass
 
@@ -344,11 +392,75 @@ def guide_ankicollab(deck_present: bool = False) -> None:
     except Exception:
         pass
 
-    action = find_menu_action("AnkiCollab", "subscription") or find_menu_action(
-        "AnkiCollab", "settings"
+    try:
+        am_mod = importlib.import_module("1957538407.auth_manager")
+        cm = importlib.import_module("1957538407.config_manager")
+        id_mod = importlib.import_module("1957538407.identifier")
+        im_mod = importlib.import_module("1957538407.import_manager")
+        vd_mod = importlib.import_module("1957538407.var_defs")
+    except Exception as exc:
+        print(f"[setup_assistant] API AnkiCollab indisponible ({exc}), repli manuel.")
+        open_ankicollab_subscription_window()
+        return False, f"api_unavailable: {exc}"
+
+    if not am_mod.auth_manager.is_logged_in():
+        try:
+            dialogs_mod = importlib.import_module("1957538407.dialogs")
+            login_dlg = dialogs_mod.LoginDialog(parent or mw)
+            login_dlg.exec()
+        except Exception as exc:
+            print(f"[setup_assistant] Erreur LoginDialog AnkiCollab: {exc}")
+            open_ankicollab_subscription_window()
+            return False, f"login_dialog_error: {exc}"
+
+        if am_mod.auth_manager.is_logged_in():
+            try:
+                menu_mod = importlib.import_module("1957538407.menu")
+                if hasattr(menu_mod, "update_ui_for_login_state"):
+                    menu_mod.update_ui_for_login_state()
+            except Exception:
+                pass
+        else:
+            return False, "not_logged_in"
+
+    try:
+        strings_data = cm.get_stored_config() or {}
+        if sub_code not in strings_data:
+            default_tags = list(
+                getattr(vd_mod, "DEFAULT_PROTECTED_TAGS", ["leech", "marked", "missing-media"])
+            )
+            strings_data[sub_code] = {
+                "timestamp": "2022-12-31 23:59:59",
+                "deckId": 0,
+                "optional_tags": {},
+                "personal_tags": default_tags,
+            }
+            if hasattr(cm, "write_config"):
+                cm.write_config(strings_data)
+            elif hasattr(cm, "save_config_to_file"):
+                cm.save_config_to_file(strings_data)
+            id_mod.subscribe_to_deck(sub_code)
+        im_mod.handle_pull(sub_code)
+        return True, "subscribed_and_pulled"
+    except Exception as exc:
+        print(f"[setup_assistant] Erreur abonnement direct AnkiCollab: {exc}")
+        open_ankicollab_subscription_window()
+        return False, str(exc)
+
+
+def guide_ankicollab(deck_present: bool = False) -> None:
+    """
+    Configure global AnkiCollab settings, subscribe directly if logged in
+    (prompting AnkiCollab login if needed), or fall back to opening Manage Subscriptions.
+    """
+    code = (
+        cfg().get("share_code")
+        or cfg().get("ankicollab_code")
+        or DEFAULT_SETUP_CONFIG["share_code"]
     )
-    if action:
-        action.trigger()
+    ok, _ = subscribe_ankicollab_directly(code=code, parent=mw)
+    if not ok:
+        open_ankicollab_subscription_window()
     wait_for_deck()
 
 
@@ -411,12 +523,12 @@ def apply_preset(did, col=None) -> None:
         conf = col.decks.add_config(name, clone_from=base_conf)
         conf_id = conf["id"]
 
-    conf.setdefault("new", {})["perDay"] = opts.get("new_per_day", 30)
+    conf.setdefault("new", {})["perDay"] = opts.get("new_per_day", 50)
     conf.setdefault("rev", {})["perDay"] = opts.get("reviews_per_day", 9999)
     conf["new"]["bury"] = True
     conf["rev"]["bury"] = True
-    conf.setdefault("lapse", {})["leechFails"] = opts.get("leech_threshold", 20)
-    conf["lapse"]["leechAction"] = 1
+    conf.setdefault("lapse", {})["leechFails"] = opts.get("leech_threshold", 12)
+    conf["lapse"]["leechAction"] = 0  # 0 = Suspendre
     conf["desiredRetention"] = opts.get("desired_retention", 0.88)
     col.decks.update_config(conf)
 
@@ -517,13 +629,15 @@ def apply_global_ankicollab_settings() -> Tuple[bool, str]:
             mgr.writeConfig("1957538407", ac_cfg)
             updated_items.append("AnkiCollab (mises à jour au démarrage, suspension des nouvelles cartes)")
         try:
-            import importlib
             cm = importlib.import_module("1957538407.config_manager")
             cur = cm.get_stored_config() or {}
             cur_settings = cur.setdefault("settings", {})
             cur_settings["pull_on_startup"] = True
             cur_settings["suspend_new_cards"] = True
-            cm.save_config_to_file(cur)
+            if hasattr(cm, "write_config"):
+                cm.write_config(cur)
+            elif hasattr(cm, "save_config_to_file"):
+                cm.save_config_to_file(cur)
         except Exception:
             pass
     except Exception as e:
@@ -631,7 +745,12 @@ def detect_nid_repair_status(col=None) -> dict:
 # 6. Action: Review Options Preset (FSRS)
 # -----------------------------------------------------------------------------
 
-def apply_edn_deck_preset(col=None) -> Tuple[bool, str]:
+def apply_edn_deck_preset(
+    col=None,
+    new_per_day: Optional[int] = None,
+    reviews_per_day: Optional[int] = None,
+    leech_threshold: Optional[int] = None,
+) -> Tuple[bool, str]:
     """Configure or update the 'Anki EDN' deck options preset with recommended FSRS settings."""
     if col is None and mw:
         col = mw.col
@@ -641,6 +760,10 @@ def apply_edn_deck_preset(col=None) -> Tuple[bool, str]:
     c = cfg()
     preset_name = c.get("preset_name", "Anki EDN")
     opts = c.get("options", {})
+
+    new_val = int(new_per_day if new_per_day is not None else opts.get("new_per_day", 50))
+    rev_val = int(reviews_per_day if reviews_per_day is not None else opts.get("reviews_per_day", 9999))
+    leech_val = int(leech_threshold if leech_threshold is not None else opts.get("leech_threshold", 12))
 
     target_conf = None
     for conf in col.decks.all_config():
@@ -656,12 +779,12 @@ def apply_edn_deck_preset(col=None) -> Tuple[bool, str]:
             base_conf = col.decks.get_config(1) or col.decks.all_config()[0]
             target_conf = col.decks.add_config(preset_name, clone_from=base_conf)
 
-    target_conf.setdefault("new", {})["perDay"] = opts.get("new_per_day", 30)
+    target_conf.setdefault("new", {})["perDay"] = new_val
     target_conf["new"]["bury"] = True
-    target_conf.setdefault("rev", {})["perDay"] = opts.get("reviews_per_day", 9999)
+    target_conf.setdefault("rev", {})["perDay"] = rev_val
     target_conf["rev"]["bury"] = True
-    target_conf.setdefault("lapse", {})["leechFails"] = opts.get("leech_threshold", 20)
-    target_conf["lapse"]["leechAction"] = 1
+    target_conf.setdefault("lapse", {})["leechFails"] = leech_val
+    target_conf["lapse"]["leechAction"] = 0  # 0 = Suspendre
     target_conf["desiredRetention"] = opts.get("desired_retention", 0.88)
     col.decks.update_config(target_conf)
 
@@ -682,8 +805,8 @@ def apply_edn_deck_preset(col=None) -> Tuple[bool, str]:
         print(f"[setup_assistant] Erreur affectation préréglage aux paquets: {e}")
 
     return True, (
-        f"Préréglage '{preset_name}' configuré (FSRS, cartes sœurs enfouies, max 30 nlles/jour) "
-        f"et assigné à {assigned_count} paquet(s) EDN."
+        f"Préréglage '{preset_name}' configuré (FSRS, cartes sœurs enfouies, max {new_val} nlles/jour, "
+        f"sangsue à {leech_val} avec suspension) et assigné à {assigned_count} paquet(s) EDN."
     )
 
 
@@ -861,6 +984,25 @@ def detect_all_setup_statuses(col=None) -> Dict[str, dict]:
 # 8. Action: Import EDN Symbols
 # -----------------------------------------------------------------------------
 
+def _ensure_symbols_imported_when_ready(col=None, addons_status: Optional[dict] = None) -> None:
+    """Import medical symbols from raccourcis.csv automatically once 2040501954 and col are ready."""
+    target_col = col if col is not None else (getattr(mw, "col", None) if mw else None)
+    if target_col is None or not hasattr(target_col, "db") or target_col.db is None:
+        return
+    try:
+        missing = (addons_status or detect_required_addons_status()).get("missing", [])
+        if 2040501954 in missing:
+            return
+        sym_status = detect_edn_symbols_status(col=target_col)
+        if sym_status.get("done", False):
+            return
+        if mw is not None and getattr(mw, "col", None) is target_col:
+            from .symbols_importer import import_edn_symbols
+            import_edn_symbols(force=True)
+    except Exception:
+        pass
+
+
 def apply_edn_symbols_import() -> Tuple[bool, str]:
     """Import medical abbreviations and symbols from raccourcis.csv into Anki collection."""
     try:
@@ -934,8 +1076,11 @@ class EDNSetupAssistantDialog(QDialog):
         self.setObjectName("ednSetupAssistantDialog")
         self.is_startup = is_startup
         self.active_col = col if col is not None else (getattr(mw, "col", None) if mw else None)
-        self.statuses = detect_all_setup_statuses(col=self.active_col)
         self.addons_status = detect_required_addons_status()
+        self._started_without_missing_addons = not bool(self.addons_status.get("missing", []))
+        self._came_from_ankicollab = False
+        _ensure_symbols_imported_when_ready(self.active_col, self.addons_status)
+        self.statuses = detect_all_setup_statuses(col=self.active_col)
         self.setWindowTitle("Assistant d'installation — Anki EDN")
         self.resize(640, 580)
         self._poll_timer: Optional[QTimer] = None
@@ -1015,12 +1160,36 @@ class EDNSetupAssistantDialog(QDialog):
     def _switch_page(self, idx: int):
         self.stack.setCurrentIndex(idx)
         accent = "#61afef" if is_dark_mode() else "#1971c2"
+        no_missing = getattr(self, "_started_without_missing_addons", False)
         if idx == 0:
             self.header_title.setText(f"<b style='font-size: 15px; color: {accent};'>Étape 1 sur 3 : Extensions indispensables</b>")
         elif idx == 1:
-            self.header_title.setText(f"<b style='font-size: 15px; color: {accent};'>Étape 2 sur 3 : Téléchargement du paquet officiel (AnkiCollab)</b>")
+            self._came_from_ankicollab = True
+            if no_missing:
+                self.header_title.setText(
+                    f"<b style='font-size: 15px; color: {accent};'>"
+                    "Étape 1 sur 2 : Connexion AnkiCollab et téléchargement du paquet"
+                    "</b>"
+                )
+            else:
+                self.header_title.setText(
+                    f"<b style='font-size: 15px; color: {accent};'>"
+                    "Étape 2 sur 3 : Téléchargement du paquet officiel (AnkiCollab)"
+                    "</b>"
+                )
         else:
-            self.header_title.setText(f"<b style='font-size: 15px; color: {accent};'>Configuration recommandée — Anki EDN</b>")
+            if no_missing and getattr(self, "_came_from_ankicollab", False):
+                self.header_title.setText(
+                    f"<b style='font-size: 15px; color: {accent};'>"
+                    "Étape 2 sur 2 : Finalisation des réglages — Anki EDN"
+                    "</b>"
+                )
+            else:
+                self.header_title.setText(
+                    f"<b style='font-size: 15px; color: {accent};'>"
+                    "Configuration recommandée — Anki EDN"
+                    "</b>"
+                )
 
     # --- Page 1: Addons ---
     def _create_addons_page(self, dark: bool) -> QWidget:
@@ -1038,16 +1207,17 @@ class EDNSetupAssistantDialog(QDialog):
         layout.addWidget(desc)
 
         list_frame = QFrame()
+        list_frame.setObjectName("missingAddonsFrame")
         bg_card = "#21252b" if dark else "#f8f9fa"
         border_card = "#3b4048" if dark else "#dee2e6"
         list_frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#missingAddonsFrame {{
                 background-color: {bg_card};
                 border: 1px solid {border_card};
                 border-radius: 6px;
                 padding: 10px;
             }}
-            QLabel {{ border: none; background: transparent; }}
+            #missingAddonsFrame QLabel {{ border: none; background: transparent; }}
         """)
         list_layout = QVBoxLayout(list_frame)
         list_layout.setSpacing(6)
@@ -1101,6 +1271,11 @@ class EDNSetupAssistantDialog(QDialog):
 
         def on_done(log):
             set_state(stage="addons_installed")
+            try:
+                from .symbols_importer import import_edn_symbols
+                import_edn_symbols(force=True)
+            except Exception:
+                pass
             self.addons_status_lbl.setText(
                 "<span style='color: #137333; font-weight: bold;'>"
                 "Extensions installées avec succès ! Fermez et rouvrez Anki pour poursuivre."
@@ -1131,40 +1306,54 @@ class EDNSetupAssistantDialog(QDialog):
         desc = QLabel(
             "Toutes les extensions requises sont en place. L'étape suivante consiste à récupérer "
             "le paquet officiel Anki EDN sur AnkiCollab.<br><br>"
-            "Le code de partage a été <b>automatiquement copié dans votre presse-papiers</b>, "
-            "et les options AnkiCollab recommandées (mises à jour au lancement, suspension initiale) "
-            "sont pré-configurées."
+            "Dès que vous êtes connecté à AnkiCollab dans Anki, l'assistant abonne automatiquement "
+            "votre profil au paquet et applique les réglages recommandés (mises à jour au lancement, "
+            "suspension initiale des nouvelles cartes), sans avoir à coller de code manuellement."
         )
         desc.setWordWrap(True)
         layout.addWidget(desc)
 
         code_frame = QFrame()
+        code_frame.setObjectName("shareCodeFrame")
         bg_card = "#21252b" if dark else "#f8f9fa"
         border_card = "#3b4048" if dark else "#dee2e6"
         accent = "#61afef" if dark else "#1971c2"
         code_frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#shareCodeFrame {{
                 background-color: {bg_card};
                 border: 1px solid {border_card};
                 border-radius: 6px;
                 padding: 12px;
             }}
-            QLabel {{ border: none; background: transparent; }}
+            #shareCodeFrame QLabel {{ border: none; background: transparent; }}
         """)
         code_layout = QVBoxLayout(code_frame)
         code = cfg().get("share_code", DEFAULT_SETUP_CONFIG["share_code"])
         code_lbl = QLabel(
-            f"Code de partage : <code style='font-size: 13px; font-weight: bold; color: {accent};'>{code}</code>"
+            f"Code de partage (copié automatiquement en secours) : "
+            f"<code style='font-size: 13px; font-weight: bold; color: {accent};'>{code}</code>"
         )
         code_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         code_layout.addWidget(code_lbl)
         layout.addWidget(code_frame)
 
-        self.ankicollab_status_lbl = QLabel(
-            "1. Cliquez sur le bouton ci-dessous pour ouvrir la fenêtre AnkiCollab.<br>"
-            "2. Collez le code (Ctrl+V) dans « Share code » puis validez.<br>"
-            "3. L'assistant détectera automatiquement la fin du téléchargement."
-        )
+        logged_in = is_ankicollab_logged_in()
+        if logged_in:
+            status_text = (
+                "<b>Session AnkiCollab détectée.</b><br>"
+                "Cliquez sur le bouton ci-dessous pour abonner votre compte et télécharger "
+                "automatiquement le paquet Anki EDN."
+            )
+            btn_text = "Télécharger le deck EDN automatiquement"
+        else:
+            status_text = (
+                "1. Si vous n'avez pas encore de compte, cliquez sur <b>Créer un compte sur ankicollab.com</b>.<br>"
+                "2. Cliquez ensuite sur <b>Se connecter et télécharger le deck EDN</b> : "
+                "une fois connecté, l'abonnement et le téléchargement démarreront automatiquement."
+            )
+            btn_text = "Se connecter et télécharger le deck EDN"
+
+        self.ankicollab_status_lbl = QLabel(status_text)
         self.ankicollab_status_lbl.setWordWrap(True)
         layout.addWidget(self.ankicollab_status_lbl)
 
@@ -1175,9 +1364,13 @@ class EDNSetupAssistantDialog(QDialog):
         cancel_btn.clicked.connect(self._on_cancel)
         btn_row.addWidget(cancel_btn)
 
+        signup_btn = QPushButton("1. Créer un compte sur ankicollab.com")
+        signup_btn.clicked.connect(lambda: webbrowser.open("https://www.ankicollab.com/signup"))
+        btn_row.addWidget(signup_btn)
+
         btn_row.addStretch()
 
-        self.open_ankicollab_btn = QPushButton("Ouvrir AnkiCollab pour s'abonner")
+        self.open_ankicollab_btn = QPushButton(btn_text)
         self.open_ankicollab_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {accent}; color: white; border: none;
@@ -1192,30 +1385,28 @@ class EDNSetupAssistantDialog(QDialog):
 
     def _on_open_ankicollab_clicked(self):
         code = cfg().get("share_code", DEFAULT_SETUP_CONFIG["share_code"])
-        try:
-            clipboard = QApplication.clipboard()
-            if clipboard is not None:
-                clipboard.setText(code)
-        except Exception:
-            pass
+        ok, status = subscribe_ankicollab_directly(code=code, parent=self)
 
-        try:
-            apply_global_ankicollab_settings()
-        except Exception:
-            pass
-
-        action = find_menu_action("AnkiCollab", "subscription") or find_menu_action(
-            "AnkiCollab", "settings"
-        )
-        if action:
-            action.trigger()
-
-        self.ankicollab_status_lbl.setText(
-            "<b>Fenêtre AnkiCollab ouverte.</b><br>"
-            "Collez le code (Ctrl+V) dans « Share code » et validez.<br>"
-            "<i>En attente du téléchargement du paquet Anki EDN...</i>"
-        )
-        self.open_ankicollab_btn.setEnabled(False)
+        if ok:
+            self.ankicollab_status_lbl.setText(
+                "<b>Abonnement enregistré et téléchargement lancé.</b><br>"
+                "<i>En attente de la réception complète du paquet Anki EDN...</i>"
+            )
+            self.open_ankicollab_btn.setEnabled(False)
+        elif status == "not_logged_in":
+            self.ankicollab_status_lbl.setText(
+                "<b>Connexion AnkiCollab annulée ou inachevée.</b><br>"
+                "Connectez-vous à votre compte AnkiCollab puis cliquez à nouveau sur le bouton ci-dessous."
+            )
+            self.open_ankicollab_btn.setEnabled(True)
+            return
+        else:
+            self.ankicollab_status_lbl.setText(
+                "<b>Fenêtre AnkiCollab ouverte en mode manuel.</b><br>"
+                "Collez le code (Ctrl+V) dans « Share code » et validez.<br>"
+                "<i>En attente du téléchargement du paquet Anki EDN...</i>"
+            )
+            self.open_ankicollab_btn.setEnabled(False)
 
         # Start live polling
         if self._poll_timer is None:
@@ -1283,17 +1474,18 @@ class EDNSetupAssistantDialog(QDialog):
 
         # Frame with options
         frame = QFrame()
+        frame.setObjectName("presetOptionsFrame")
         bg_card = "#21252b" if dark else "#f8f9fa"
         border_card = "#3b4048" if dark else "#dee2e6"
         frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#presetOptionsFrame {{
                 background-color: {bg_card};
                 border: 1px solid {border_card};
                 border-radius: 6px;
                 padding: 10px;
             }}
-            QLabel {{ border: none; background: transparent; }}
-            QWidget {{ border: none; background: transparent; }}
+            #presetOptionsFrame QLabel {{ border: none; background: transparent; }}
+            #presetOptionsFrame QWidget {{ border: none; background: transparent; }}
         """)
         frame_layout = QVBoxLayout(frame)
         frame_layout.setSpacing(8)
@@ -1308,8 +1500,8 @@ class EDNSetupAssistantDialog(QDialog):
         frame_layout.addWidget(row_opt)
 
         self.cb_preset, row_pre = self._create_option_row(
-            "Préréglage de révision 'Anki EDN' (FSRS 88%, cartes sœurs enfouies)",
-            "Active FSRS, configure la rétention cible à 88% et enfouit les cartes sœurs.",
+            "Préréglage de révision 'Anki EDN' (FSRS 88%, 50 nlles/j, sangsue 12 -> suspendre)",
+            "Active FSRS, configure la rétention cible à 88%, 50 nouvelles cartes/jour, sangsue à 12 échecs (suspension) et enfouit les cartes sœurs.",
             self.statuses.get("preset", {}),
             dark
         )
@@ -1537,8 +1729,9 @@ def check_startup_assistant() -> None:
             return
 
         col = getattr(mw, "col", None)
-        statuses = detect_all_setup_statuses(col=col)
         addons_st = detect_required_addons_status()
+        _ensure_symbols_imported_when_ready(col, addons_st)
+        statuses = detect_all_setup_statuses(col=col)
         if all(s.get("done", False) for s in statuses.values()) and addons_st.get("done", True):
             shared_cfg["setup_assistant_shown"] = True
             shared_cfg["setup_assistant_completed"] = True

@@ -100,6 +100,7 @@ def get_theme_colors(is_dark: bool) -> dict:
             "pill_bg": "#253346",
             "pill_text": "#58a6ff",
             "pill_border": "#314563",
+            "subtag_text": "#9ca3af",
             "tooltip_bg": "#0f172a",
             "tooltip_text": "#f8fafc",
             "tooltip_border": "#334155",
@@ -129,6 +130,7 @@ def get_theme_colors(is_dark: bool) -> dict:
             "pill_bg": "#f0f7ff",
             "pill_text": "#0969da",
             "pill_border": "#bae6fd",
+            "subtag_text": "#64748b",
             "tooltip_bg": "#feffc4",
             "tooltip_text": "#000000",
             "tooltip_border": "#cbd5e1",
@@ -268,6 +270,7 @@ def build_dialog_stylesheet(c: dict) -> str:
         color: {c['accent_text']};
         border: 1px solid {c['accent']};
         font-weight: 600;
+        padding: 8px 18px;
     }}
     QPushButton#PrimaryButton:hover {{
         background-color: {c['accent_hover']};
@@ -278,6 +281,7 @@ def build_dialog_stylesheet(c: dict) -> str:
         color: {c['pill_text']};
         border: 1px solid {c['pill_border']};
         font-weight: 600;
+        padding: 5px 12px;
     }}
     QPushButton#SecondaryAccentButton:hover {{
         background-color: {c['pill_bg']};
@@ -291,6 +295,25 @@ def build_dialog_stylesheet(c: dict) -> str:
     QPushButton#DangerButton:hover {{
         background-color: {c['danger']};
         color: #ffffff;
+    }}
+    QLabel#ActiveDecksBadge {{
+        background-color: {c['bg_subtle']};
+        color: {c['text_secondary']};
+        border: 1px solid {c['border']};
+        border-radius: 12px;
+        padding: 3px 10px;
+        font-size: 11.5px;
+        font-weight: 600;
+    }}
+    QLabel#FieldLabel {{
+        color: {c['text_primary']};
+        font-weight: 600;
+        font-size: 12.5px;
+        margin-top: 2px;
+    }}
+    QLabel#MutedHint {{
+        color: {c['text_secondary']};
+        font-size: 12px;
     }}
     QProgressBar {{
         background-color: {c['bg_subtle']};
@@ -317,12 +340,12 @@ def build_dialog_stylesheet(c: dict) -> str:
 class FilteredDecksDialog(QDialog):
     """Dialogue de configuration et génération des paquets filtrés EDN."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, initial_query: str = ""):
         super().__init__(parent or mw)
         self.setObjectName("filteredDecksDialog")
         self.setWindowTitle("Générateur de Paquets Filtrés - Anki EDN")
-        self.resize(860, 780)
-        self.setMinimumSize(780, 640)
+        self.resize(1080, 720)
+        self.setMinimumSize(940, 620)
         self.curriculum_data = {}
         self.specialty_items: Dict[str, CurriculumTreeWidgetItem] = {}
         self._updating_checks = False
@@ -332,6 +355,8 @@ class FilteredDecksDialog(QDialog):
         self.setup_ui()
         self.apply_saved_ui_settings()
         self.load_data()
+        if initial_query:
+            self.search_input.setText(initial_query)
 
     def is_dark_mode(self) -> bool:
         """Détecte si l'interface d'Anki est en mode nuit / sombre."""
@@ -368,9 +393,23 @@ class FilteredDecksDialog(QDialog):
             if hasattr(self, "title_label"):
                 self.title_label.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {c['accent']};")
             if hasattr(self, "desc_label"):
-                self.desc_label.setStyleSheet(f"color: {c['text_secondary']}; font-size: 12px; line-height: 1.4;")
+                self.desc_label.setStyleSheet(f"color: {c['text_secondary']}; font-size: 12px;")
+            if hasattr(self, "multi_tag_info_label"):
+                self.multi_tag_info_label.setStyleSheet(f"color: {c['text_secondary']}; font-size: 11.5px;")
             if hasattr(self, "summary_label"):
-                self.summary_label.setStyleSheet(f"color: {c['text_secondary']}; font-weight: 500; font-size: 12px; padding: 2px 0;")
+                self.update_selection_summary()
+            if self.specialty_items:
+                child_color = QColor(c["text_secondary"])
+                sub_color = QColor(c["subtag_text"])
+                for parent in self.specialty_items.values():
+                    for i in range(parent.childCount()):
+                        child = parent.child(i)
+                        for col in range(3):
+                            child.setForeground(col, child_color)
+                        for j in range(child.childCount()):
+                            sub_child = child.child(j)
+                            for col in range(3):
+                                sub_child.setForeground(col, sub_color)
         finally:
             self._updating_theme = False
 
@@ -383,27 +422,57 @@ class FilteredDecksDialog(QDialog):
 
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(18, 18, 18, 18)
-        main_layout.setSpacing(14)
+        main_layout.setContentsMargins(18, 16, 18, 16)
+        main_layout.setSpacing(12)
 
-        # ── En-tête sobre ──
+        # ── En-tête sobre et compact ──
         header_layout = QVBoxLayout()
-        header_layout.setSpacing(4)
-        
+        header_layout.setSpacing(3)
+
         header_top_row = QHBoxLayout()
+        header_top_row.setSpacing(10)
         self.title_label = QLabel("Générateur de Paquets Filtrés - Anki EDN")
         header_top_row.addWidget(self.title_label)
         header_top_row.addStretch()
+
+        self.unlock_item_btn = QPushButton("Débloquer un item étudié")
+        self.unlock_item_btn.setObjectName("SecondaryAccentButton")
+        self.unlock_item_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.unlock_item_btn.setToolTip(
+            "Rechercher un item étudié, le débloquer progressivement (Essentiel, Rang A, Complet) "
+            "et ordonner les nouvelles cartes avec le tri Scaffolding."
+        )
+        self.unlock_item_btn.clicked.connect(self._open_unlock_item_dialog)
+        try:
+            from .unlock_item import is_unlock_item_enabled
+            self.unlock_item_btn.setVisible(is_unlock_item_enabled())
+        except Exception:
+            pass
+        header_top_row.addWidget(self.unlock_item_btn)
+
+        self.active_decks_label = QLabel("Aucun paquet actif")
+        self.active_decks_label.setObjectName("ActiveDecksBadge")
+        header_top_row.addWidget(self.active_decks_label)
         header_layout.addLayout(header_top_row)
 
         self.desc_label = QLabel(
-            "Création hiérarchique automatisée de paquets filtrés par discipline et par item médical.\n"
-            "Chaque matière dispose de ses sous-paquets d'items qualifiés, compatibles avec AnkiCollab."
+            "Sélectionnez vos disciplines ou items à gauche, réglez les filtres à droite, puis générez l'arborescence sous « EDN - Paquets Filtrés »."
         )
         header_layout.addWidget(self.desc_label)
+
+        self.multi_tag_info_label = QLabel(
+            "Note : dans Anki, une carte ne peut appartenir qu'à un seul paquet filtré à la fois. "
+            "Les cartes multi-taggées (plusieurs items ou matières) ne peuvent donc pas aller dans 2 paquets simultanément."
+        )
+        self.multi_tag_info_label.setWordWrap(True)
+        header_layout.addWidget(self.multi_tag_info_label)
         main_layout.addLayout(header_layout)
 
-        # ── Disciplines et matières à générer ──
+        # ── Zone principale en 2 colonnes (Arborescence à gauche | Paramètres & Maintenance à droite) ──
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(14)
+
+        # ── Colonne gauche : Disciplines et matières ──
         tree_group = QGroupBox("Disciplines et matières à générer")
         tree_layout = QVBoxLayout(tree_group)
         tree_layout.setSpacing(10)
@@ -412,14 +481,11 @@ class FilteredDecksDialog(QDialog):
         search_bar = QHBoxLayout()
         search_bar.setSpacing(8)
 
-        search_label = QLabel("Rechercher :")
-        search_bar.addWidget(search_label)
-
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Filtrer par matière ou par item (ex: Cardio, HTA, 224)...")
+        self.search_input.setPlaceholderText("Rechercher une matière, un item ou SDD (ex: Cardio, HTA, 224)...")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self.on_search_text_changed)
-        search_bar.addWidget(self.search_input)
+        search_bar.addWidget(self.search_input, 1)
 
         self.filter_only_selected_cb = QCheckBox("Sélection uniquement")
         self.filter_only_selected_cb.setToolTip("Masquer les disciplines et items non cochés")
@@ -428,9 +494,9 @@ class FilteredDecksDialog(QDialog):
 
         tree_layout.addLayout(search_bar)
 
-        # Barre d'actions rapides et réglages
+        # Barre d'actions rapides de l'arborescence
         action_bar = QHBoxLayout()
-        action_bar.setSpacing(8)
+        action_bar.setSpacing(6)
 
         check_all_btn = QPushButton("Tout cocher")
         check_all_btn.setObjectName("ToolBtn")
@@ -452,34 +518,26 @@ class FilteredDecksDialog(QDialog):
         collapse_all_btn.clicked.connect(lambda: self.tree_widget.collapseAll())
         action_bar.addWidget(collapse_all_btn)
 
+        action_bar.addStretch()
+
         self.ecos_btn = QPushButton("Générer le Deck ECOS")
         self.ecos_btn.setObjectName("SecondaryAccentButton")
         self.ecos_btn.setToolTip("Génère immédiatement le paquet filtré ECOS avec l'ensemble des Situations de Départ (EDN::SDD) selon les options de filtrage.")
         self.ecos_btn.clicked.connect(self.on_generate_ecos_clicked)
         action_bar.addWidget(self.ecos_btn)
 
-        action_bar.addStretch()
-
-        threshold_label = QLabel("Seuil d'attribution :")
-        action_bar.addWidget(threshold_label)
-        self.threshold_spin = NoWheelSpinBox()
-        self.threshold_spin.setRange(10, 90)
-        self.threshold_spin.setSuffix(" %")
-        self.threshold_spin.setValue(40)
-        self.threshold_spin.valueChanged.connect(self.on_threshold_changed)
-        action_bar.addWidget(self.threshold_spin)
-
         tree_layout.addLayout(action_bar)
 
         # Arborescence hiérarchique (Discipline -> Items -> Sous-parties)
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Discipline / Item qualifié", "Items / Qualification", "Cartes estimées"])
+        self.tree_widget.setHeaderLabels(["Discipline / Item", "Qualification", "Cartes"])
         self.tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree_widget.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.tree_widget.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.tree_widget.setRootIsDecorated(True)
+        self.tree_widget.setUniformRowHeights(True)
         self.tree_widget.setSortingEnabled(True)
-        self.tree_widget.setIndentation(20)
+        self.tree_widget.setIndentation(18)
         self.tree_widget.setAnimated(True)
         self.tree_widget.itemChanged.connect(self.on_item_changed)
         tree_layout.addWidget(self.tree_widget, 1)
@@ -488,56 +546,61 @@ class FilteredDecksDialog(QDialog):
         self.summary_label = QLabel("Aucune discipline sélectionnée")
         tree_layout.addWidget(self.summary_label)
 
-        main_layout.addWidget(tree_group, 1)
+        content_layout.addWidget(tree_group, 3)
 
-        # ── Options de filtrage ──
-        options_group = QGroupBox("Paramètres de filtrage et d'échéance")
-        options_layout = QGridLayout(options_group)
-        options_layout.setHorizontalSpacing(16)
-        options_layout.setVerticalSpacing(10)
+        # ── Colonne droite : Paramètres et maintenance ──
+        right_pane = QWidget()
+        right_pane.setMinimumWidth(385)
+        right_pane.setMaximumWidth(430)
+        right_layout = QVBoxLayout(right_pane)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(12)
 
-        # Scope : Volet matière vs Item complet
-        scope_label = QLabel("Périmètre des sous-paquets :")
-        scope_label.setStyleSheet("font-weight: 600;")
-        options_layout.addWidget(scope_label, 0, 0)
+        # Carte 1 : Paramètres de filtrage
+        options_group = QGroupBox("Paramètres de filtrage")
+        options_layout = QVBoxLayout(options_group)
+        options_layout.setSpacing(10)
 
-        scope_radios_layout = QHBoxLayout()
-        scope_radios_layout.setSpacing(14)
+        # Périmètre
+        scope_label = QLabel("Périmètre des sous-paquets")
+        scope_label.setObjectName("FieldLabel")
+        options_layout.addWidget(scope_label)
+
         self.radio_scope_matiere = QRadioButton("Volet matière de l'item seul (Recommandé)")
+        self.radio_scope_matiere.setToolTip("N'inclut que les cartes taguées à la fois par l'item et par la matière sélectionnée.")
         self.radio_scope_matiere.setChecked(True)
         self.radio_scope_item = QRadioButton("Item complet (toutes les cartes de l'item)")
-        scope_radios_layout.addWidget(self.radio_scope_matiere)
-        scope_radios_layout.addWidget(self.radio_scope_item)
-        scope_radios_layout.addStretch()
-        options_layout.addLayout(scope_radios_layout, 0, 1)
+        self.radio_scope_item.setToolTip("Inclut toutes les cartes de l'item, même celles rattachées à d'autres matières.")
+        options_layout.addWidget(self.radio_scope_matiere)
+        options_layout.addWidget(self.radio_scope_item)
 
-        # Filtre d'échéance / statut
-        status_label = QLabel("État des cartes :")
-        status_label.setStyleSheet("font-weight: 600;")
-        options_layout.addWidget(status_label, 1, 0)
+        # État des cartes
+        status_label = QLabel("État des cartes")
+        status_label.setObjectName("FieldLabel")
+        options_layout.addWidget(status_label)
 
         self.status_combo = NoWheelComboBox()
-        self.status_combo.addItem("Cartes à faire aujourd'hui : Dues + Bleues/Nouvelles (Recommandé)", "due_and_new")
+        self.status_combo.addItem("À faire aujourd'hui : Dues + Nouvelles (Recommandé)", "due_and_new")
         self.status_combo.addItem("Toutes les cartes (même celles dues dans longtemps, sans restriction)", "all")
         self.status_combo.addItem("Uniquement les révisions du jour (Dues)", "due_only")
         self.status_combo.addItem("Uniquement les nouvelles cartes (Bleues)", "new_only")
-        options_layout.addWidget(self.status_combo, 1, 1)
+        options_layout.addWidget(self.status_combo)
 
-        # Rangs A / B / C / sans rang
-        rank_label = QLabel("Objectifs de connaissances :")
-        rank_label.setStyleSheet("font-weight: 600;")
-        options_layout.addWidget(rank_label, 2, 0)
+        # Objectifs de connaissances (Rang A / B)
+        rank_label = QLabel("Objectifs de connaissances")
+        rank_label.setObjectName("FieldLabel")
+        options_layout.addWidget(rank_label)
 
         self.rank_combo = NoWheelComboBox()
         self.rank_combo.addItem("Toutes les cartes", "all")
         self.rank_combo.addItem("Rang A uniquement (Connaissances indispensables)", "A")
         self.rank_combo.addItem("Rang B uniquement (Connaissances approfondies)", "B")
-        options_layout.addWidget(self.rank_combo, 2, 1)
+        options_layout.addWidget(self.rank_combo)
 
-        # Ordre de révision des cartes
-        order_label = QLabel("Ordre des cartes :")
-        order_label.setStyleSheet("font-weight: 600;")
-        options_layout.addWidget(order_label, 3, 0)
+        # Ordre des cartes
+        order_label = QLabel("Ordre des cartes")
+        order_label.setObjectName("FieldLabel")
+        options_layout.addWidget(order_label)
 
         self.order_combo = NoWheelComboBox()
         self.order_combo.addItem("Hériter du deck EDN principal (Recommandé)", "inherit")
@@ -548,44 +611,76 @@ class FilteredDecksDialog(QDialog):
         self.order_combo.addItem("Plus ancien révisé en premier", 0)
         self.order_combo.addItem("Intervalles croissants", 2)
         self.order_combo.addItem("Intervalles décroissants", 3)
-        options_layout.addWidget(self.order_combo, 3, 1)
+        options_layout.addWidget(self.order_combo)
 
-        # Cases à cocher FSRS
-        extra_checks_layout = QHBoxLayout()
-        extra_checks_layout.setSpacing(20)
+        # Seuil d'attribution
+        threshold_row = QHBoxLayout()
+        threshold_row.setSpacing(8)
+        threshold_label = QLabel("Seuil d'attribution :")
+        threshold_label.setObjectName("FieldLabel")
+        threshold_label.setToolTip("Pourcentage minimal de cartes d'un item appartenant à une matière pour l'y rattacher.")
+        threshold_row.addWidget(threshold_label)
+        threshold_row.addStretch()
+        self.threshold_spin = NoWheelSpinBox()
+        self.threshold_spin.setRange(10, 90)
+        self.threshold_spin.setSuffix(" %")
+        self.threshold_spin.setValue(40)
+        self.threshold_spin.setToolTip("Pourcentage minimal de cartes d'un item appartenant à une matière pour l'y rattacher.")
+        self.threshold_spin.valueChanged.connect(self.on_threshold_changed)
+        threshold_row.addWidget(self.threshold_spin)
+        options_layout.addLayout(threshold_row)
 
+        # FSRS
         self.resched_checkbox = QCheckBox("Rééchelonner selon les réponses (FSRS actif)")
         self.resched_checkbox.setChecked(True)
-        extra_checks_layout.addWidget(self.resched_checkbox)
-        extra_checks_layout.addStretch()
+        options_layout.addWidget(self.resched_checkbox)
 
-        options_layout.addLayout(extra_checks_layout, 4, 0, 1, 2)
-        main_layout.addWidget(options_group)
+        right_layout.addWidget(options_group)
 
-        # ── Barre de progression (masquée par défaut) ──
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        main_layout.addWidget(self.progress_bar)
+        # Carte 2 : Maintenance des paquets existants
+        maintenance_group = QGroupBox("Paquets existants")
+        maintenance_layout = QVBoxLayout(maintenance_group)
+        maintenance_layout.setSpacing(8)
 
-        # ── Boutons d'action inférieurs ──
-        bottom_layout = QHBoxLayout()
-        bottom_layout.setSpacing(10)
+        self.maintenance_status_label = QLabel("Aucun paquet filtré actif.")
+        self.maintenance_status_label.setObjectName("MutedHint")
+        self.maintenance_status_label.setWordWrap(True)
+        maintenance_layout.addWidget(self.maintenance_status_label)
 
-        self.empty_btn = QPushButton("Vider les paquets")
-        self.empty_btn.setToolTip("Restaure toutes les cartes dans le paquet Anki EDN sans supprimer les filtres.")
-        self.empty_btn.clicked.connect(self.on_empty_clicked)
-        bottom_layout.addWidget(self.empty_btn)
+        maint_btn_row = QHBoxLayout()
+        maint_btn_row.setSpacing(8)
 
         self.rebuild_btn = QPushButton("Régénérer les paquets")
         self.rebuild_btn.setToolTip("Reconstruit et réattribue les cartes dans tous les paquets filtrés existants sous 'EDN - Paquets Filtrés'.")
         self.rebuild_btn.clicked.connect(self.on_rebuild_clicked)
-        bottom_layout.addWidget(self.rebuild_btn)
+        maint_btn_row.addWidget(self.rebuild_btn)
+
+        self.empty_btn = QPushButton("Vider les paquets")
+        self.empty_btn.setToolTip("Restaure toutes les cartes dans le paquet Anki EDN sans supprimer les filtres.")
+        self.empty_btn.clicked.connect(self.on_empty_clicked)
+        maint_btn_row.addWidget(self.empty_btn)
+
+        maintenance_layout.addLayout(maint_btn_row)
 
         self.delete_btn = QPushButton("Supprimer l'arborescence")
         self.delete_btn.setObjectName("DangerButton")
         self.delete_btn.setToolTip("Vide les paquets et supprime complètement l'arborescence EDN - Paquets Filtrés.")
         self.delete_btn.clicked.connect(self.on_delete_clicked)
-        bottom_layout.addWidget(self.delete_btn)
+        maintenance_layout.addWidget(self.delete_btn)
+
+        right_layout.addWidget(maintenance_group)
+        right_layout.addStretch(1)
+
+        content_layout.addWidget(right_pane, 2)
+        main_layout.addLayout(content_layout, 1)
+
+        # ── Pied de page : Progression + Actions principales ──
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setSpacing(10)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        bottom_layout.addWidget(self.progress_bar, 1)
 
         bottom_layout.addStretch()
 
@@ -599,9 +694,31 @@ class FilteredDecksDialog(QDialog):
         bottom_layout.addWidget(self.generate_btn)
 
         main_layout.addLayout(bottom_layout)
-        
+
         # Application initiale du thème adaptatif
         self.update_theme()
+
+    def update_active_decks_status(self):
+        """Met à jour l'indicateur du nombre de paquets filtrés actuellement actifs."""
+        try:
+            dids = get_edn_filtered_deck_ids()
+            count = len(dids) if dids else 0
+        except Exception:
+            count = 0
+
+        if hasattr(self, "active_decks_label"):
+            if count == 0:
+                self.active_decks_label.setText("Aucun paquet actif")
+            else:
+                self.active_decks_label.setText(f"{count} paquet{'s' if count > 1 else ''} actif{'s' if count > 1 else ''}")
+
+        if hasattr(self, "maintenance_status_label"):
+            if count == 0:
+                self.maintenance_status_label.setText("Aucun paquet filtré actif sous « EDN - Paquets Filtrés ».")
+            else:
+                self.maintenance_status_label.setText(
+                    f"{count} paquet{'s' if count > 1 else ''} actif{'s' if count > 1 else ''} sous « EDN - Paquets Filtrés »."
+                )
 
     def apply_saved_ui_settings(self):
         """Restaure les options de filtrage et d'échéance depuis les derniers réglages utilisateur."""
@@ -685,6 +802,9 @@ class FilteredDecksDialog(QDialog):
         other_specs = sorted([s for s in specialties.keys() if s != "ECOS"])
         sorted_specs = (["ECOS"] if "ECOS" in specialties else []) + other_specs
         self._updating_checks = True
+        c = get_theme_colors(self.is_dark_mode())
+        child_color = QColor(c["text_secondary"])
+        sub_color = QColor(c["subtag_text"])
 
         try:
             for sp in sorted_specs:
@@ -741,9 +861,9 @@ class FilteredDecksDialog(QDialog):
                     child.setData(2, Qt.ItemDataRole.UserRole, it["spec_cards"])
 
                     # Nuance visuelle sobre pour les lignes enfants
-                    child.setForeground(0, QColor("#a6adc8"))
-                    child.setForeground(1, QColor("#a6adc8"))
-                    child.setForeground(2, QColor("#a6adc8"))
+                    child.setForeground(0, child_color)
+                    child.setForeground(1, child_color)
+                    child.setForeground(2, child_color)
 
                     if child.has_subtags:
                         for sub in it.get("subtags", []):
@@ -762,9 +882,9 @@ class FilteredDecksDialog(QDialog):
                             sub_child.setText(2, f"{sub['spec_cards']} cartes")
                             sub_child.setData(2, Qt.ItemDataRole.UserRole, sub["spec_cards"])
 
-                            sub_child.setForeground(0, QColor("#8993a4"))
-                            sub_child.setForeground(1, QColor("#8993a4"))
-                            sub_child.setForeground(2, QColor("#8993a4"))
+                            sub_child.setForeground(0, sub_color)
+                            sub_child.setForeground(1, sub_color)
+                            sub_child.setForeground(2, sub_color)
 
                 self.specialty_items[sp] = parent
 
@@ -806,6 +926,7 @@ class FilteredDecksDialog(QDialog):
         self.tree_widget.setSortingEnabled(True)
         self.tree_widget.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         self.update_selection_summary()
+        self.update_active_decks_status()
         self.apply_filter()
 
     def _set_check_state_down(self, item: QTreeWidgetItem, state: Qt.CheckState):
@@ -993,15 +1114,16 @@ class FilteredDecksDialog(QDialog):
                                 total_items += 1
                                 total_cards += getattr(child, "spec_cards", 0)
 
+        c = get_theme_colors(self.is_dark_mode())
         if selected_specs_count == 0:
             self.summary_label.setText("Aucune discipline sélectionnée")
-            self.summary_label.setStyleSheet("color: #a6adc8; font-weight: 500; font-size: 12px;")
+            self.summary_label.setStyleSheet(f"color: {c['text_secondary']}; font-weight: 500; font-size: 12px; padding: 2px 0;")
         else:
             disc_str = f"{selected_specs_count} discipline{'s' if selected_specs_count > 1 else ''}"
             items_str = f"{total_items} item{'s' if total_items > 1 else ''}/paquet{'s' if total_items > 1 else ''}"
             cards_str = f"{total_cards} carte{'s' if total_cards > 1 else ''} estimée{'s' if total_cards > 1 else ''}"
             self.summary_label.setText(f"Sélection : {disc_str} • {items_str} • {cards_str}")
-            self.summary_label.setStyleSheet("color: #89b4fa; font-weight: 600; font-size: 12px;")
+            self.summary_label.setStyleSheet(f"color: {c['accent']}; font-weight: 600; font-size: 12px; padding: 2px 0;")
 
     def get_selected_data(self) -> Tuple[List[str], Dict[str, List[str]]]:
         """Retourne la liste des spécialités cochées et le dictionnaire des items sélectionnés."""
@@ -1090,6 +1212,29 @@ class FilteredDecksDialog(QDialog):
         """Sauvegarde les réglages lors de la fermeture de la fenêtre."""
         self.save_current_settings()
         super().closeEvent(event)
+
+    def _open_unlock_item_dialog(self):
+        """Ouvre le dialogue de déblocage progressif d'item avec pré-remplissage contextuel."""
+        import re as _re
+        initial_query = ""
+        curr = self.tree_widget.currentItem()
+        if curr is not None and not getattr(curr, "is_specialty", True):
+            text0 = curr.text(0) or ""
+            m_num = _re.search(r'\bItem\s+0*(\d+)\b', text0, _re.IGNORECASE)
+            if m_num:
+                initial_query = m_num.group(1)
+            else:
+                initial_query = text0
+        if not initial_query:
+            initial_query = self.search_input.text().strip()
+
+        from .unlock_item import show_unlock_item_dialog
+        did_unlock = show_unlock_item_dialog(parent=self, initial_query=initial_query)
+        if did_unlock:
+            self.update_active_decks_status()
+            self.update_selection_summary()
+            if mw:
+                mw.reset()
 
     def on_generate_clicked(self):
         """Déclenche la génération de l'arborescence des paquets filtrés."""
@@ -1234,6 +1379,7 @@ class FilteredDecksDialog(QDialog):
             total_cards = res.get("total_cards", 0)
             if mw:
                 mw.reset()
+            self.update_active_decks_status()
             tooltip(f"{count} paquets filtrés régénérés ({total_cards} cartes allouées).")
         except Exception as e:
             log_error(f"Erreur lors de la régénération des paquets filtrés : {e}")
@@ -1255,6 +1401,7 @@ class FilteredDecksDialog(QDialog):
         count = empty_all_edn_filtered_decks()
         if mw:
             mw.reset()
+        self.update_active_decks_status()
         tooltip(f"{count} paquets filtrés vidés avec succès.")
 
     def on_delete_clicked(self):
@@ -1269,6 +1416,7 @@ class FilteredDecksDialog(QDialog):
         success = delete_all_edn_filtered_decks()
         if mw:
             mw.reset()
+        self.update_active_decks_status()
         if success:
             showInfo("L'arborescence des paquets filtrés a été supprimée.", parent=self)
             self.accept()
@@ -1276,7 +1424,7 @@ class FilteredDecksDialog(QDialog):
             showInfo("Aucune arborescence active à supprimer.", parent=self)
 
 
-def open_filtered_decks_dialog(parent=None):
+def open_filtered_decks_dialog(parent=None, initial_query: str = ""):
     """Ouvre la fenêtre du générateur de paquets filtrés."""
-    dialog = FilteredDecksDialog(parent or mw)
+    dialog = FilteredDecksDialog(parent or mw, initial_query=initial_query)
     dialog.exec()

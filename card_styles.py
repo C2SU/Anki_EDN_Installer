@@ -23,12 +23,14 @@ ADDON_PATH = os.path.dirname(os.path.abspath(__file__))
 PREFS_KEY = "edn_card_prefs"
 
 DEFAULT_PREFS = {
-    "showRankBadge": False,
-    "rank_color_a": "#111827",
+    "showRankBadge": True,
+    "rank_color_a": "#aa0000",
     "rank_color_b": "#3182CE",
     "rank_color_c": "#38A169",
     "showSpecialtyIcon": True,
     "showSpecialtyIconMobile": False,
+    "showTombeStars": True,
+    "showTombeStarsMobile": False,
     "showFlagBorders": True,
     "virtualBlueFlagForNewCards": False,
     "virtualBlueFlagForNewCardsMobile": False,
@@ -36,7 +38,7 @@ DEFAULT_PREFS = {
     "virtual_flag_color_suspended": "flag1",
     "reviewDualFlags": False,
     "previewDualFlags": False,
-    "flagAgainEnabled": False,
+    "flagAgainEnabled": True,
     "flagAgainCount": 7,
     "virtual_flag_color_leech": "flag2",
     "cleanDuplicateLineBreaks": True,
@@ -44,7 +46,199 @@ DEFAULT_PREFS = {
     "autoCapitalizeFields": True,
     "autoCapitalizeLinkedCards": True,
     "cleanClipboardFormatting": True,
+    "showSymbolTooltips": True,
+    "enableUnlockItemTool": True,
 }
+
+SYMBOL_TOOLTIPS_MAP = {
+    "››": "Début",
+    "≫": "Début",
+    "/|": "Ou",
+    "☐": "Il faut / toujours",
+    "◊": "Parfois / il est possible",
+    "∀": "Pour tout / tous les",
+    "∃": "Il existe / il est possible",
+    "¬": "Pas / non / dans le cas contraire",
+    "Ø": "Non / aucun / absence de",
+    "∅": "Non / aucun / absence de",
+    "‡": "Arrêt",
+    "↕": "Arrêt",
+    "›": "Puis / ensuite / en énième intention",
+    "∨": "Et/ou",
+    "α": "Est proportionnel à / en fonction de / dépend de",
+    "♆": "Psychiatrique",
+    "ψ": "Psychiatrique",
+    "±": "Plus ou moins",
+    "≈": "Environ / analogue à",
+    "≠": "Différent de",
+    "≡": "Équivalent à / synonyme",
+    "→": "Entraîne / donne / vers",
+    "↗": "Augmentation / hausse",
+    "↘": "Diminution / baisse",
+    "←": "Causé par / secondaire à",
+    "↑": "Augmentation / élevé",
+    "↓": "Diminution / bas",
+    "↔": "Pendant / durant",
+    "⇒": "Implique / entraîne",
+}
+
+ABBR_TOOLTIPS_MAP = {
+    "PDCB": "Perte de conscience brève",
+    "TMO": "Traitement médicamenteux optimal",
+    "aTDM": "Scanner injecté (angio-TDM)",
+    "ECR": "Essai contrôlé randomisé",
+    "ITT": "Intention de traiter",
+    "ATCD": "Antécédent",
+    "FdR": "Facteur de risque",
+    "FDR": "Facteur de risque",
+    "svr": "Sévère",
+    "ctrl": "Contrôle",
+    "panpan": "Relation sexuelle",
+    "vx": "Vaisseaux",
+    "Ag": "Antigène",
+    "Ac": "Anticorps",
+    "sup.": "Superficiel ou supérieur",
+    "inf.": "Inférieur",
+    "lat.": "Latéral",
+    "méd.": "Médian ou médial",
+    "sem.": "Semaine",
+    "spp.": "Espèces (species)",
+    "vx.": "Vaisseaux",
+    "v.": "Veine(s)",
+    "fam.": "Familial(e)",
+    "int.": "Interne / intérieur",
+    "ext.": "Externe / extérieur",
+    "d.": "Droit(e)",
+    "ed.": "Édition",
+    "NFS": "Numération formule sanguine",
+    "AINS": "Anti-inflammatoire non stéroïdien",
+    "SA": "Semaines d'aménorrhée",
+    "CRP": "Protéine C-réactive",
+    "VHB": "Virus de l'hépatite B",
+    "PeC": "Prise en charge",
+    "PA": "Pression artérielle",
+    "IM": "Intramusculaire",
+    "CI": "Contre-indication / contre-indiqué",
+    "VHC": "Virus de l'hépatite C",
+    "HTIC": "Hypertension intracrânienne",
+    "PAS": "Pression artérielle systolique",
+    "ECBU": "Examen cytobactériologique des urines",
+    "CV": "Cardiovasculaire",
+    "CMV": "Cytomégalovirus",
+    "PNN": "Polynucléaires neutrophiles",
+    "AMM": "Autorisation de mise sur le marché",
+    "BU": "Bandelette urinaire",
+    "MICI": "Maladie inflammatoire chronique de l'intestin",
+    "IRC": "Insuffisance rénale chronique",
+    "RR": "Risque relatif",
+    "IC": "Insuffisance cardiaque / Intervalle de confiance",
+}
+
+
+def _build_symbol_tooltips_js() -> str:
+    """Construit le script JS d'infobulles natives pour les symboles et abréviations EDN."""
+    sym_keys = sorted(SYMBOL_TOOLTIPS_MAP.keys(), key=len, reverse=True)
+    abbr_keys = sorted(ABBR_TOOLTIPS_MAP.keys(), key=len, reverse=True)
+    all_keys = sym_keys + abbr_keys
+    pattern_src = "|".join(re.escape(k) for k in all_keys)
+    sym_json = json.dumps(SYMBOL_TOOLTIPS_MAP, ensure_ascii=False)
+    abbr_json = json.dumps(ABBR_TOOLTIPS_MAP, ensure_ascii=False)
+    pattern_json = json.dumps(pattern_src, ensure_ascii=False)
+
+    return (
+        "(function() {\n"
+        f"    var SYM_MAP = {sym_json};\n"
+        f"    var ABBR_MAP = {abbr_json};\n"
+        f"    var TOKEN_RE = new RegExp({pattern_json}, 'g');\n"
+        "    var WORD_CH = /[A-Za-zÀ-ÖØ-öø-ÿ0-9_]/;\n"
+        "    var SYM_JOIN_CH = /[A-Za-zÀ-ÖØ-öø-ÿ0-9_-]/;\n"
+        "    var SKIP_TAGS = {SCRIPT:1, STYLE:1, TEXTAREA:1, INPUT:1, CODE:1, PRE:1, A:1, BUTTON:1, SVG:1};\n"
+        "    function shouldSkip(node) {\n"
+        "        var el = node.parentElement;\n"
+        "        if (!el) return true;\n"
+        "        if (el.closest && el.closest('.edn-sym-tip, .tags, .edn-tags, .edn-header, .bar, .barHider, .edn-specialty-icons, .edn-tombe-stars, a, button, code, pre, script, style, svg')) return true;\n"
+        "        while (el) {\n"
+        "            if (SKIP_TAGS[el.tagName]) return true;\n"
+        "            el = el.parentElement;\n"
+        "        }\n"
+        "        return false;\n"
+        "    }\n"
+        "    window._ednApplySymbolTooltips = function() {\n"
+        "        try {\n"
+        "            if (window.edn_prefs && window.edn_prefs.showSymbolTooltips === false) return;\n"
+        "            if (typeof document === 'undefined' || !document.body) return;\n"
+        "            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);\n"
+        "            var nodes = [];\n"
+        "            var cur;\n"
+        "            while ((cur = walker.nextNode())) {\n"
+        "                if (!cur.nodeValue || shouldSkip(cur)) continue;\n"
+        "                TOKEN_RE.lastIndex = 0;\n"
+        "                if (TOKEN_RE.test(cur.nodeValue)) nodes.push(cur);\n"
+        "            }\n"
+        "            for (var i = 0; i < nodes.length; i++) {\n"
+        "                var tn = nodes[i];\n"
+        "                var txt = tn.nodeValue;\n"
+        "                if (!txt || !tn.parentNode) continue;\n"
+        "                TOKEN_RE.lastIndex = 0;\n"
+        "                var frag = document.createDocumentFragment();\n"
+        "                var last = 0;\n"
+        "                var changed = false;\n"
+        "                var m;\n"
+        "                while ((m = TOKEN_RE.exec(txt)) !== null) {\n"
+        "                    var tok = m[0];\n"
+        "                    var idx = m.index;\n"
+        "                    var tip = null;\n"
+        "                    var endIdx = idx + tok.length;\n"
+        "                    if (SYM_MAP[tok]) {\n"
+        "                        var symPrevOk = (idx === 0) || !SYM_JOIN_CH.test(txt.charAt(idx - 1));\n"
+        "                        var symNextOk = (endIdx >= txt.length) || !SYM_JOIN_CH.test(txt.charAt(endIdx));\n"
+        "                        if (symPrevOk && symNextOk) tip = SYM_MAP[tok];\n"
+        "                    } else {\n"
+        "                        var prevOk = (idx === 0) || !WORD_CH.test(txt.charAt(idx - 1));\n"
+        "                        var nextOk = (endIdx >= txt.length) || !WORD_CH.test(txt.charAt(endIdx));\n"
+        "                        if (prevOk && nextOk) tip = ABBR_MAP[tok];\n"
+        "                    }\n"
+        "                    if (!tip) continue;\n"
+        "                    if (idx > last) frag.appendChild(document.createTextNode(txt.slice(last, idx)));\n"
+        "                    var span = document.createElement('span');\n"
+        "                    span.className = 'edn-sym-tip';\n"
+        "                    span.setAttribute('title', tip);\n"
+        "                    span.textContent = tok;\n"
+        "                    frag.appendChild(span);\n"
+        "                    last = idx + tok.length;\n"
+        "                    changed = true;\n"
+        "                }\n"
+        "                if (changed) {\n"
+        "                    if (last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));\n"
+        "                    tn.parentNode.replaceChild(frag, tn);\n"
+        "                }\n"
+        "            }\n"
+        "        } catch (e) {}\n"
+        "    };\n"
+        "    function scheduleTips() {\n"
+        "        window._ednApplySymbolTooltips();\n"
+        "        if (typeof setTimeout === 'function') setTimeout(window._ednApplySymbolTooltips, 40);\n"
+        "    }\n"
+        "    if (typeof document !== 'undefined') {\n"
+        "        if (document.readyState === 'loading') {\n"
+        "            document.addEventListener('DOMContentLoaded', scheduleTips);\n"
+        "        } else {\n"
+        "            scheduleTips();\n"
+        "        }\n"
+        "    }\n"
+        "})();"
+    )
+
+
+_SYMBOL_TOOLTIPS_JS_CACHE = None
+
+
+def get_symbol_tooltips_js() -> str:
+    """Retourne le script JS mis en cache pour les infobulles symboles/abréviations."""
+    global _SYMBOL_TOOLTIPS_JS_CACHE
+    if _SYMBOL_TOOLTIPS_JS_CACHE is None:
+        _SYMBOL_TOOLTIPS_JS_CACHE = _build_symbol_tooltips_js()
+    return _SYMBOL_TOOLTIPS_JS_CACHE
 
 ANKI_FLAGS = [
     ("flag1", "Rouge (Drapeau 1)"),
@@ -79,35 +273,43 @@ def _prefs_file() -> str:
 
 
 _CACHED_PREFS = None
+_CACHED_PREFS_PATH = None
+_CACHED_PREFS_MTIME = None
 
 
 def load_prefs() -> dict:
-    global _CACHED_PREFS
-    if _CACHED_PREFS is not None:
-        return _CACHED_PREFS
+    global _CACHED_PREFS, _CACHED_PREFS_PATH, _CACHED_PREFS_MTIME
+    has_profile = bool(mw and getattr(mw, "pm", None) and mw.pm.name)
+    if not has_profile:
+        return dict(DEFAULT_PREFS)
+    p = _prefs_file()
     try:
-        p = _prefs_file()
         if os.path.exists(p):
+            mtime = os.path.getmtime(p)
+            if (
+                _CACHED_PREFS is not None
+                and _CACHED_PREFS_PATH == p
+                and _CACHED_PREFS_MTIME == mtime
+            ):
+                return dict(_CACHED_PREFS)
             with open(p, "r", encoding="utf-8") as f:
                 _CACHED_PREFS = {**DEFAULT_PREFS, **json.load(f)}
-                return _CACHED_PREFS
+            _CACHED_PREFS_PATH = p
+            _CACHED_PREFS_MTIME = mtime
+            return dict(_CACHED_PREFS)
     except Exception:
         pass
-    _CACHED_PREFS = dict(DEFAULT_PREFS)
-    return _CACHED_PREFS
+    return dict(DEFAULT_PREFS)
 
 
 def _generate_dynamic_css(prefs: dict) -> str:
-    """Génère le CSS dynamique pour les couleurs de rang et variables CSS."""
-    color_a = prefs.get("rank_color_a", DEFAULT_PREFS["rank_color_a"])
-    color_b = prefs.get("rank_color_b", DEFAULT_PREFS["rank_color_b"])
-    color_c = prefs.get("rank_color_c", DEFAULT_PREFS["rank_color_c"])
-    show_rank = prefs.get("showRankBadge", False)
-    
-    if not show_rank:
-        return ""
-        
-    return f"""
+    """Génère le CSS dynamique pour les couleurs de rang, variables CSS et infobulles symboles."""
+    css_parts = []
+    if prefs.get("showRankBadge", False):
+        color_a = prefs.get("rank_color_a", DEFAULT_PREFS["rank_color_a"])
+        color_b = prefs.get("rank_color_b", DEFAULT_PREFS["rank_color_b"])
+        color_c = prefs.get("rank_color_c", DEFAULT_PREFS["rank_color_c"])
+        css_parts.append(f"""
         :root {{
             --edn-rang-a: {color_a};
             --edn-rang-b: {color_b};
@@ -116,22 +318,32 @@ def _generate_dynamic_css(prefs: dict) -> str:
         .bar.edn-rang-A, .barHider.edn-rang-A, .edn-rang-bar.edn-rang-A {{
             background-color: {color_a} !important;
         }}
-        .edn-specialty-icons.edn-rang-A {{
+        .edn-specialty-icons.edn-rang-A, .edn-tombe-stars.edn-rang-A {{
             border-color: {color_a} !important;
         }}
         .bar.edn-rang-B, .barHider.edn-rang-B, .edn-rang-bar.edn-rang-B {{
             background-color: {color_b} !important;
         }}
-        .edn-specialty-icons.edn-rang-B {{
+        .edn-specialty-icons.edn-rang-B, .edn-tombe-stars.edn-rang-B {{
             border-color: {color_b} !important;
         }}
         .bar.edn-rang-C, .barHider.edn-rang-C, .edn-rang-bar.edn-rang-C {{
             background-color: {color_c} !important;
         }}
-        .edn-specialty-icons.edn-rang-C {{
+        .edn-specialty-icons.edn-rang-C, .edn-tombe-stars.edn-rang-C {{
             border-color: {color_c} !important;
         }}
-    """
+        """)
+
+    if prefs.get("showSymbolTooltips", True):
+        css_parts.append("""
+        .edn-sym-tip {
+            border-bottom: 1px dotted rgba(100, 116, 139, 0.55);
+            cursor: help;
+        }
+        """)
+
+    return "\n".join(css_parts)
 
 
 def _write_prefs_to_media_folder(prefs: dict):
@@ -143,27 +355,38 @@ def _write_prefs_to_media_folder(prefs: dict):
             color_b = prefs.get("rank_color_b", DEFAULT_PREFS["rank_color_b"])
             color_c = prefs.get("rank_color_c", DEFAULT_PREFS["rank_color_c"])
             show_rank = "true" if prefs.get("showRankBadge", False) else "false"
+            show_tips = "true" if prefs.get("showSymbolTooltips", True) else "false"
 
             js_content = (
                 f"var edn_prefs = {json.dumps(prefs, ensure_ascii=False)};\n"
                 f"(function() {{\n"
-                f"    if (typeof document !== 'undefined' && {show_rank}) {{\n"
+                f"    if (typeof document === 'undefined') return;\n"
+                f"    var cssText = '';\n"
+                f"    if ({show_rank}) {{\n"
+                f"        cssText += `:root {{ --edn-rang-a: {color_a}; --edn-rang-b: {color_b}; --edn-rang-c: {color_c}; }}` +\n"
+                f"            `.bar.edn-rang-A, .barHider.edn-rang-A, .edn-rang-bar.edn-rang-A {{ background-color: {color_a} !important; }}` +\n"
+                f"            `.edn-specialty-icons.edn-rang-A, .edn-tombe-stars.edn-rang-A {{ border-color: {color_a} !important; }}` +\n"
+                f"            `.bar.edn-rang-B, .barHider.edn-rang-B, .edn-rang-bar.edn-rang-B {{ background-color: {color_b} !important; }}` +\n"
+                f"            `.edn-specialty-icons.edn-rang-B, .edn-tombe-stars.edn-rang-B {{ border-color: {color_b} !important; }}` +\n"
+                f"            `.bar.edn-rang-C, .barHider.edn-rang-C, .edn-rang-bar.edn-rang-C {{ background-color: {color_c} !important; }}` +\n"
+                f"            `.edn-specialty-icons.edn-rang-C, .edn-tombe-stars.edn-rang-C {{ border-color: {color_c} !important; }}`;\n"
+                f"    }}\n"
+                f"    if ({show_tips}) {{\n"
+                f"        cssText += '.edn-sym-tip {{ border-bottom: 1px dotted rgba(100, 116, 139, 0.55); cursor: help; }}';\n"
+                f"    }}\n"
+                f"    if (cssText) {{\n"
                 f"        var s = document.getElementById('edn-dynamic-card-styles');\n"
                 f"        if (!s) {{\n"
                 f"            s = document.createElement('style');\n"
                 f"            s.id = 'edn-dynamic-card-styles';\n"
                 f"            document.head.appendChild(s);\n"
                 f"        }}\n"
-                f"        s.textContent = `:root {{ --edn-rang-a: {color_a}; --edn-rang-b: {color_b}; --edn-rang-c: {color_c}; }}` +\n"
-                f"            `.bar.edn-rang-A, .barHider.edn-rang-A, .edn-rang-bar.edn-rang-A {{ background-color: {color_a} !important; }}` +\n"
-                f"            `.edn-specialty-icons.edn-rang-A {{ border-color: {color_a} !important; }}` +\n"
-                f"            `.bar.edn-rang-B, .barHider.edn-rang-B, .edn-rang-bar.edn-rang-B {{ background-color: {color_b} !important; }}` +\n"
-                f"            `.edn-specialty-icons.edn-rang-B {{ border-color: {color_b} !important; }}` +\n"
-                f"            `.bar.edn-rang-C, .barHider.edn-rang-C, .edn-rang-bar.edn-rang-C {{ background-color: {color_c} !important; }}` +\n"
-                f"            `.edn-specialty-icons.edn-rang-C {{ border-color: {color_c} !important; }}`;\n"
+                f"        s.textContent = cssText;\n"
                 f"    }}\n"
                 f"}})();\n"
             )
+            if prefs.get("showSymbolTooltips", True):
+                js_content += "\n" + get_symbol_tooltips_js() + "\n"
             with open(js_path, "w", encoding="utf-8") as f:
                 f.write(js_content)
             print(f"[EDN Card Styles] Prefs ecrites dans _edn_prefs.js")
@@ -172,12 +395,15 @@ def _write_prefs_to_media_folder(prefs: dict):
 
 
 def save_prefs(prefs: dict):
-    global _CACHED_PREFS
+    global _CACHED_PREFS, _CACHED_PREFS_PATH, _CACHED_PREFS_MTIME, _LAST_PUSHED_PREFS_JSON
     _CACHED_PREFS = dict(prefs)
+    _LAST_PUSHED_PREFS_JSON = None
     try:
         p = _prefs_file()
         with open(p, "w", encoding="utf-8") as f:
             json.dump(prefs, f, ensure_ascii=False, indent=2)
+        _CACHED_PREFS_PATH = p
+        _CACHED_PREFS_MTIME = os.path.getmtime(p)
         # Également écrire dans le dossier média d'Anki pour les mobiles
         _write_prefs_to_media_folder(prefs)
     except Exception as e:
@@ -221,13 +447,18 @@ def _push_prefs_to_webview(card=None):
         storage_js = ""
         if prefs_json != _LAST_PUSHED_PREFS_JSON:
             _LAST_PUSHED_PREFS_JSON = prefs_json
-            storage_js = f"localStorage.setItem('edn_card_prefs', JSON.stringify({prefs_json}));"
+            storage_js = (
+                f"window.edn_prefs = {prefs_json}; "
+                f"localStorage.setItem('edn_card_prefs', JSON.stringify({prefs_json}));"
+            )
 
+        tip_call = " if (window._ednApplySymbolTooltips) window._ednApplySymbolTooltips();" if prefs.get("showSymbolTooltips", True) else ""
         js = (
             f"window._ednIsNewCard = {is_new_js}; "
             f"window._ednIsDifficultCard = {is_diff_js}; "
             f"window._ednCardLapses = {lapses_val}; "
             f"{storage_js}"
+            f"{tip_call}"
         )
         if mw and mw.reviewer and mw.reviewer.web:
             mw.reviewer.web.eval(js)
@@ -280,9 +511,13 @@ def _on_card_will_show(text: str, card, kind: str) -> str:
         )
         if sentinel_tags:
             injections.append("".join(sentinel_tags))
-            
-        if injections:
-            return "".join(injections) + text
+
+        suffix = ""
+        if prefs.get("showSymbolTooltips", True):
+            suffix = f"<script>{get_symbol_tooltips_js()}</script>"
+
+        if injections or suffix:
+            return "".join(injections) + text + suffix
     except Exception as e:
         print(f"[EDN Card Styles] Erreur card_will_show: {e}")
     return text
@@ -363,13 +598,13 @@ class CardStylesDialog(QDialog):
         self.cb_rank.setChecked(self.prefs.get("showRankBadge", True))
         self.cb_rank.setToolTip(
             "Colore la barre verticale d'icône du premier champ en fonction du rang de la carte.\n"
-            "Noir = Rang A   Bleu = Rang B   Vert = Rang C   Gris = non classé"
+            "Rouge = Rang A   Bleu = Rang B   Vert = Rang C   Gris = non classé"
         )
         layout.addWidget(self.cb_rank)
 
         rank_desc = QLabel(
             "  <small>La barre verticale d'icône (gauche) prend la couleur du rang.<br>"
-            "  Noir = Rang A (Essentiel) | Bleu = Rang B (Important) | Vert = Rang C.</small>"
+            "  Rouge = Rang A (Essentiel) | Bleu = Rang B (Important) | Vert = Rang C.</small>"
         )
         rank_desc.setStyleSheet(f"color: {muted_color}; margin-left: 20px;")
         layout.addWidget(rank_desc)
@@ -400,6 +635,24 @@ class CardStylesDialog(QDialog):
         )
         icons_desc.setStyleSheet(f"color: {muted_color}; margin-left: 20px;")
         layout.addWidget(icons_desc)
+
+        layout.addSpacing(8)
+
+        # Toggle 2b : Étoiles "tombé" (Desktop & Mobile)
+        self.cb_tombe_stars = QCheckBox("Afficher les étoiles « tombé » sur cet ordinateur")
+        self.cb_tombe_stars.setChecked(self.prefs.get("showTombeStars", True))
+        self.cb_tombe_stars.setToolTip(
+            "Affiche en haut à gauche des cartes (recto et verso) autant d'étoiles que d'occurrences\n"
+            "d'annales où la carte est tombée (tag tombé::X-fois, maximum 3 ; sources dans Références)."
+        )
+        layout.addWidget(self.cb_tombe_stars)
+
+        self.cb_tombe_stars_mobile = QCheckBox("Afficher les étoiles « tombé » sur mobile")
+        self.cb_tombe_stars_mobile.setChecked(self.prefs.get("showTombeStarsMobile", True))
+        self.cb_tombe_stars_mobile.setToolTip(
+            "Affiche les étoiles « tombé » en haut à gauche des cartes lorsque vous révisez sur mobile."
+        )
+        layout.addWidget(self.cb_tombe_stars_mobile)
 
         layout.addSpacing(8)
 
@@ -548,6 +801,14 @@ class CardStylesDialog(QDialog):
         )
         layout.addWidget(self.cb_clean_clipboard)
 
+        self.cb_symbol_tooltips = QCheckBox("Infobulles explicatives au survol des symboles et abréviations")
+        self.cb_symbol_tooltips.setChecked(self.prefs.get("showSymbolTooltips", True))
+        self.cb_symbol_tooltips.setToolTip(
+            "Entoure automatiquement les symboles (☐, ◊, ∀, ¬...) et abréviations médicales (PDCB, TMO, aTDM...)\n"
+            "d'une infobulle explicative au survol de la souris pendant la révision."
+        )
+        layout.addWidget(self.cb_symbol_tooltips)
+
         layout.addSpacing(16)
 
         # Info note sentinelle
@@ -598,6 +859,8 @@ class CardStylesDialog(QDialog):
         self.prefs["showRankBadge"]     = self.cb_rank.isChecked()
         self.prefs["showSpecialtyIcon"] = self.cb_icons.isChecked()
         self.prefs["showSpecialtyIconMobile"] = self.cb_icons_mobile.isChecked()
+        self.prefs["showTombeStars"] = self.cb_tombe_stars.isChecked()
+        self.prefs["showTombeStarsMobile"] = self.cb_tombe_stars_mobile.isChecked()
         self.prefs["showFlagBorders"]   = self.cb_flags.isChecked()
         self.prefs["virtualBlueFlagForNewCards"] = self.cb_virtual_flag.isChecked()
         self.prefs["virtual_flag_color_new"] = self.combo_flag_new.currentData()
@@ -609,6 +872,7 @@ class CardStylesDialog(QDialog):
         self.prefs["autoCapitalizeFields"] = self.cb_auto_cap_fields.isChecked()
         self.prefs["autoCapitalizeLinkedCards"] = self.cb_auto_cap_linked.isChecked()
         self.prefs["cleanClipboardFormatting"] = self.cb_clean_clipboard.isChecked()
+        self.prefs["showSymbolTooltips"] = self.cb_symbol_tooltips.isChecked()
         save_prefs(self.prefs)
         _push_prefs_to_webview()
         tooltip("Préférences cartes sauvegardées !")
@@ -676,6 +940,10 @@ def setup_card_styles_menu():
     pass
 
 def _on_profile_opened():
+    global _CACHED_PREFS, _CACHED_PREFS_PATH, _CACHED_PREFS_MTIME
+    _CACHED_PREFS = None
+    _CACHED_PREFS_PATH = None
+    _CACHED_PREFS_MTIME = None
     # 1) Initialiser depuis _edn_prefs.js uniquement si le JSON local est absent (premier démarrage sur cet appareil)
     _sync_prefs_from_media_file()
     # 2) Toujours (ré)écrire le _edn_prefs.js depuis le JSON local — le JSON local est la source de vérité

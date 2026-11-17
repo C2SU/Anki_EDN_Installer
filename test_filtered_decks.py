@@ -124,6 +124,18 @@ def test_specialty_filtering():
 
     assert clean_specialty_name("gastro-enterologie") == "Gastro-entérologie"
 
+    assert is_specialty_tag("annales") is False
+    assert is_specialty_tag("hors-programme") is False
+    assert is_specialty_tag("Neurochirurgie") is True
+    assert is_specialty_tag("Orthopédie") is True
+    assert is_specialty_tag("Rhumatologie") is True
+    assert is_specialty_tag("Réanimation") is True
+    assert is_specialty_tag("Anesthésie") is True
+    assert is_specialty_tag("Antibiothérapie") is True
+    assert is_specialty_tag("CMF") is True
+    assert clean_specialty_name("neurochirurgie") == "Neurochirurgie"
+    assert clean_specialty_name("reanimation") == "Réanimation"
+
 
 
 
@@ -2056,3 +2068,440 @@ def test_dialog_ecos_button_and_search(qapp):
     assert not ecos_item.isHidden()
 
     dialog.search_input.clear()
+
+    # 4. Verifier la presence du bouton "Debloquer un item etudie" dans le generateur
+    assert hasattr(dialog, "unlock_item_btn")
+    assert dialog.unlock_item_btn.text() == "Débloquer un item étudié"
+    dialog.close()
+
+
+@pytest.fixture
+def temp_unlock_collection():
+    """Collection temporaire avec items suspendus pour tester déblocage et tri Scaffolding."""
+    tmpdir = tempfile.mkdtemp()
+    col_path = os.path.join(tmpdir, "test_unlock.anki2")
+    col = Collection(col_path)
+
+    res = col.decks.add_normal_deck_with_name("Anki EDN")
+    edn_did = res.id
+    basic_nt = col.models.by_name("Basic")
+
+    # Créer aussi un type de note Syndrome et Sémiologie pour vérifier leur détection native
+    syndrome_nt = col.models.new("Syndrome-EDN-Picat")
+    col.models.add_field(syndrome_nt, col.models.new_field("Nom"))
+    col.models.add_field(syndrome_nt, col.models.new_field("Description"))
+    tmpl_syn = col.models.new_template("Carte 1")
+    tmpl_syn["qfmt"] = "{{Nom}}"
+    tmpl_syn["afmt"] = "{{Description}}"
+    col.models.add_template(syndrome_nt, tmpl_syn)
+    col.models.add(syndrome_nt)
+
+    semio_nt = col.models.new("Sémiologie-EDN-Picat")
+    col.models.add_field(semio_nt, col.models.new_field("Illustration"))
+    col.models.add_field(semio_nt, col.models.new_field("Nom"))
+    col.models.add_field(semio_nt, col.models.new_field("Description"))
+    tmpl_sem = col.models.new_template("Carte 1")
+    tmpl_sem["qfmt"] = "{{Nom}}"
+    tmpl_sem["afmt"] = "{{Description}}"
+    col.models.add_template(semio_nt, tmpl_sem)
+    col.models.add(semio_nt)
+
+    # Item 145
+    n145 = col.new_note(basic_nt)
+    n145.fields[0] = "Définition surveillance des maladies infectieuses transmissibles"
+    n145.fields[1] = "DO, CNR, signalement"
+    n145.tags = ["EDN::item-145-Surveillance-maladies-infectieuses", "Infectiologie", "Rang::A"]
+    col.add_note(n145, edn_did)
+
+    # Item 152 (Endocardite) ajouté volontairement dans le DESORDRE pédagogique (Thérapeutique -> Examens -> Sémiologie -> Sommaire)
+    # 1. Thérapeutique + Score (Rang A puis Rang B) -> doit arriver EN DERNIER (Palier 4)
+    n_rx_b = col.new_note(basic_nt)
+    n_rx_b.fields[0] = "Score pronostique et critères majeurs de Duke dans l'endocardite infectieuse"
+    n_rx_b.fields[1] = "Hémocultures + imagerie valvulaire"
+    n_rx_b.tags = ["EDN::item-152-Endocardite-infectieuse", "Cardiologie", "Rang::B", "Score"]
+    col.add_note(n_rx_b, edn_did)
+
+    n_rx_a = col.new_note(basic_nt)
+    n_rx_a.fields[0] = "Traitement par antibiothérapie probabiliste de l'endocardite infectieuse"
+    n_rx_a.fields[1] = "Amoxicilline + oxacilline + gentamicine"
+    n_rx_a.tags = ["EDN::item-152-Endocardite-infectieuse", "Cardiologie", "Infectiologie", "Antibiothérapie", "Rang::A"]
+    col.add_note(n_rx_a, edn_did)
+
+    # 2. Détail avancé Rang A (liste) pour tester que Essentiel n'inonde pas avec toutes les listes de détail
+    n_list_a = col.new_note(basic_nt)
+    n_list_a.fields[0] = "Posologies complètes des aminosides selon la clairance"
+    n_list_a.fields[1] = "<ul><li>Ligne 1</li><li>Ligne 2</li><li>Ligne 3</li><li>Ligne 4</li></ul>"
+    n_list_a.tags = ["EDN::item-152-Endocardite-infectieuse", "Cardiologie", "Rang::A"]
+    col.add_note(n_list_a, edn_did)
+
+    # 3. Examens complémentaires (Palier 3)
+    n_exam_a = col.new_note(basic_nt)
+    n_exam_a.fields[0] = "Examens complémentaires d'imagerie (ETT / ETO) et hémocultures dans l'endocardite"
+    n_exam_a.fields[1] = "3 paires d'hémocultures + ETT en urgence puis ETO"
+    n_exam_a.tags = ["EDN::item-152-Endocardite-infectieuse", "Cardiologie", "Imagerie", "Rang::A"]
+    col.add_note(n_exam_a, edn_did)
+
+    n_exam_b = col.new_note(basic_nt)
+    n_exam_b.fields[0] = "Indication de TEP-scanner cardiaque (18F-FDG)"
+    n_exam_b.fields[1] = "Suspicion d'endocardite sur prothèse"
+    n_exam_b.tags = ["EDN::item-152-Endocardite-infectieuse", "Cardiologie", "Imagerie", "Rang::B"]
+    col.add_note(n_exam_b, edn_did)
+
+    # 4. Définitions & Sémiologie (Palier 2)
+    n_semio_a = col.new_note(semio_nt)
+    n_semio_a.fields[0] = ""
+    n_semio_a.fields[1] = "Faux panaris d'Osler"
+    n_semio_a.fields[2] = "Nodosités douloureuses de la pulpe des doigts"
+    n_semio_a.tags = ["EDN::item-152-Endocardite-infectieuse", "Cardiologie", "Sémiologie", "Rang::A"]
+    col.add_note(n_semio_a, edn_did)
+
+    n_def_a = col.new_note(basic_nt)
+    n_def_a.fields[0] = "Définition de l'endocardite infectieuse"
+    n_def_a.fields[1] = "Infection de l'endocarde le plus souvent valvulaire"
+    n_def_a.tags = ["EDN::item-152-Endocardite-infectieuse", "Cardiologie", "Rang::A"]
+    col.add_note(n_def_a, edn_did)
+
+    # 5. Carte Sommaire (Palier 1 : type Syndrome + cible Main)
+    n_sommaire = col.new_note(syndrome_nt)
+    n_sommaire.fields[0] = "Endocardite infectieuse (Vue d'ensemble)"
+    n_sommaire.fields[1] = "Fièvre + souffle cardiaque + hémocultures positives"
+    n_sommaire.tags = ["EDN::item-152-Endocardite-infectieuse", "Cardiologie", "Rang::A"]
+    col.add_note(n_sommaire, edn_did)
+
+    # Ajouter un lien Main vers n_sommaire depuis une sous-carte
+    n_def_a.fields[1] += f"<br>Main — <kbd class='clickable_cards' onclick=\"cards_ct_click('{n_sommaire.id}')\">{n_sommaire.id}</kbd>"
+    col.update_note(n_def_a)
+
+    # Suspendre toutes les cartes initialement (profil débutant)
+    all_cids = list(col.find_cards(""))
+    col.sched.suspend_cards(all_cids)
+
+    ids_map = {
+        "n_sommaire": n_sommaire.cards()[0].id,
+        "n_def_a": n_def_a.cards()[0].id,
+        "n_semio_a": n_semio_a.cards()[0].id,
+        "n_exam_a": n_exam_a.cards()[0].id,
+        "n_list_a": n_list_a.cards()[0].id,
+        "n_rx_a": n_rx_a.cards()[0].id,
+        "n_exam_b": n_exam_b.cards()[0].id,
+        "n_rx_b": n_rx_b.cards()[0].id,
+    }
+    yield col, ids_map
+
+    col.close()
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_unlock_search_by_number_and_title(temp_unlock_collection):
+    from Anki_EDN_Installer.unlock_item import get_all_edn_items, search_edn_items
+
+    col, _ = temp_unlock_collection
+    items = get_all_edn_items(col)
+    assert len(items) == 2
+
+    res_num = search_edn_items(items, "145")
+    assert len(res_num) == 1
+    assert res_num[0].number == "145"
+    assert "145" in res_num[0].title
+
+    res_title = search_edn_items(items, "endocardite")
+    assert len(res_title) == 1
+    assert res_title[0].number == "152"
+    assert "Endocardite" in res_title[0].title
+
+
+def test_unlock_three_progressive_modes_and_scaffolding_sort(temp_unlock_collection):
+    from Anki_EDN_Installer.unlock_item import (
+        MODE_COMPLET,
+        MODE_ESSENTIEL,
+        MODE_RANG_A,
+        TIER_DEFINITIONS_SEMIO,
+        TIER_EXAMENS,
+        TIER_SOMMAIRE,
+        TIER_THERAPEUTIQUE_SCORES,
+        get_all_edn_items,
+        search_edn_items,
+        unlock_studied_item,
+    )
+
+    col, ids_map = temp_unlock_collection
+    items = get_all_edn_items(col)
+    endo = search_edn_items(items, "152")[0]
+
+    to_ess, tot_ess, _ = endo.get_mode_counts(MODE_ESSENTIEL)
+    to_ra, tot_ra, _ = endo.get_mode_counts(MODE_RANG_A)
+    to_comp, tot_comp, _ = endo.get_mode_counts(MODE_COMPLET)
+
+    # Progressivité stricte : Essentiel < Rang A complet < Item complet
+    assert 0 < tot_ess < tot_ra < tot_comp
+    assert to_ess == tot_ess
+    assert to_comp == 8
+
+    # 1. Déblocage en mode Essentiel (sans Learn Now) -> ne doit débloquer ni les Rang B, ni les posologies/antibiothérapie lourdes
+    res_ess = unlock_studied_item(
+        col, endo, mode=MODE_ESSENTIEL, apply_scaffolding=True, learn_now=False, rebuild_filtered=False
+    )
+    assert res_ess["success"] is True
+    assert res_ess["unsuspended_count"] == tot_ess
+    assert col.get_card(ids_map["n_sommaire"]).queue == 0
+    assert col.get_card(ids_map["n_def_a"]).queue == 0
+    assert col.get_card(ids_map["n_semio_a"]).queue == 0
+    assert col.get_card(ids_map["n_rx_a"]).queue == -1
+    assert col.get_card(ids_map["n_exam_b"]).queue == -1
+    assert col.get_card(ids_map["n_rx_b"]).queue == -1
+
+    # 2. Passage en mode Rang A complet -> débloque les Rang A restants, garde les Rang B suspendus
+    endo_step2 = search_edn_items(get_all_edn_items(col), "152")[0]
+    res_ra = unlock_studied_item(
+        col, endo_step2, mode=MODE_RANG_A, apply_scaffolding=True, learn_now=False, rebuild_filtered=False
+    )
+    assert res_ra["unsuspended_count"] == (tot_ra - tot_ess)
+    assert col.get_card(ids_map["n_rx_a"]).queue == 0
+    assert col.get_card(ids_map["n_list_a"]).queue == 0
+    assert col.get_card(ids_map["n_exam_b"]).queue == -1
+    assert col.get_card(ids_map["n_rx_b"]).queue == -1
+
+    # 3. Passage en mode Item complet (Rang A + Rang B) -> débloque le reste et applique l'ordre Scaffolding complet
+    endo_step3 = search_edn_items(get_all_edn_items(col), "Endocardite")[0]
+    res_comp = unlock_studied_item(
+        col, endo_step3, mode=MODE_COMPLET, apply_scaffolding=True, learn_now=False, rebuild_filtered=False
+    )
+    assert res_comp["unsuspended_count"] == (tot_comp - tot_ra)
+    assert res_comp["sorted_new_count"] == 8
+
+    breakdown = res_comp["tier_breakdown"]
+    assert breakdown[TIER_SOMMAIRE] >= 1
+    assert breakdown[TIER_DEFINITIONS_SEMIO] >= 2
+    assert breakdown[TIER_EXAMENS] >= 1
+    assert breakdown[TIER_THERAPEUTIQUE_SCORES] >= 2
+
+    # Vérifier les positions réelles (`card.due`) dans la collection Anki :
+    # Sommaire -> Définitions & Sémiologie -> Examens complémentaires -> Thérapeutique & Scores
+    due_sommaire = col.get_card(ids_map["n_sommaire"]).due
+    due_def = col.get_card(ids_map["n_def_a"]).due
+    due_semio = col.get_card(ids_map["n_semio_a"]).due
+    due_exam = col.get_card(ids_map["n_exam_a"]).due
+    due_rx = col.get_card(ids_map["n_rx_a"]).due
+    due_score_b = col.get_card(ids_map["n_rx_b"]).due
+
+    assert due_sommaire < due_def
+    assert due_sommaire < due_semio
+    assert max(due_def, due_semio) < due_exam
+    assert due_exam < due_rx
+    assert due_rx < due_score_b
+
+
+def test_unlock_item_dialog_and_deck_browser_hook(qapp, temp_unlock_collection):
+    from Anki_EDN_Installer.unlock_item import (
+        HOME_BUTTON_ELEMENT_ID,
+        MODE_COMPLET,
+        UnlockItemDialog,
+        render_deck_browser_unlock_button,
+    )
+
+    col, _ = temp_unlock_collection
+
+    # 1. Rendu du bouton sur l'écran d'accueil (DeckBrowser) et idempotence
+    rendered = render_deck_browser_unlock_button("<div>Stats</div>")
+    assert HOME_BUTTON_ELEMENT_ID in rendered
+    assert "Débloquer un item étudié" in rendered
+    assert "pycmd('edn_unlock_item')" in rendered
+    rendered_twice = render_deck_browser_unlock_button(rendered)
+    assert rendered_twice.count(HOME_BUTTON_ELEMENT_ID) == 1
+
+    # 2. Dialogue Qt de déblocage
+    dlg = UnlockItemDialog(col=col, initial_query="Endocardite")
+    assert dlg.items_tree.topLevelItemCount() == 1
+    assert dlg.selected_item is not None
+    assert dlg.selected_item.number == "152"
+    assert dlg.scaffolding_cb.isChecked() is True
+    assert "natif, sans add-on requis" not in dlg.scaffolding_cb.text()
+    assert dlg.learn_now_cb.isChecked() is True
+
+    # Sélectionner le mode complet et débloquer
+    assert dlg.feedback_banner.isHidden() is True
+    dlg.mode_cards[MODE_COMPLET].radio.setChecked(True)
+    dlg.on_unlock_clicked()
+    assert dlg.did_unlock is True
+    assert dlg.selected_item.suspended_count == 0
+    assert dlg.feedback_banner.isHidden() is False
+    assert "152" in dlg.feedback_label.text()
+    assert "Learn Now" in dlg.feedback_label.text()
+    dlg.close()
+
+
+def test_unlock_hub_threshold_three_links():
+    from Anki_EDN_Installer.unlock_item import TIER_SOMMAIRE, classify_edn_note
+
+    res_two = classify_edn_note(
+        flds_str="Prise en charge d'une situation clinique\x1fDétails",
+        tags_str="EDN::item-152-Endocardite Rang_A",
+        notetype_name="Basique-EDN",
+        outgoing_links_count=2,
+    )
+    assert res_two["is_sommaire"] is False
+
+    res_three = classify_edn_note(
+        flds_str="Prise en charge d'une situation clinique\x1fDétails",
+        tags_str="EDN::item-152-Endocardite Rang_A",
+        notetype_name="Basique-EDN",
+        outgoing_links_count=3,
+    )
+    assert res_three["is_sommaire"] is True
+    assert res_three["scaffolding_tier"] == TIER_SOMMAIRE
+
+
+def test_unlock_learn_now_preserves_forward_scaffolding_order(temp_unlock_collection):
+    from Anki_EDN_Installer.unlock_item import (
+        MODE_COMPLET,
+        get_all_edn_items,
+        search_edn_items,
+        unlock_studied_item,
+    )
+
+    col, ids_map = temp_unlock_collection
+    endo = search_edn_items(get_all_edn_items(col), "152")[0]
+
+    res = unlock_studied_item(
+        col,
+        endo,
+        mode=MODE_COMPLET,
+        apply_scaffolding=True,
+        learn_now=True,
+        rebuild_filtered=False,
+    )
+    assert res["success"] is True
+    assert res["learn_now_count"] == 8
+
+    for cid in ids_map.values():
+        card = col.get_card(cid)
+        assert card.type == 1
+        assert card.queue == 1
+
+    col.decks.select(col.get_card(ids_map["n_sommaire"]).did)
+    queued = col.sched.get_queued_cards(fetch_limit=20)
+    queued_cids = [qc.card.id for qc in queued.cards]
+    assert len(queued_cids) >= 8
+
+    pos = {cid: queued_cids.index(cid) for cid in ids_map.values()}
+    assert pos[ids_map["n_sommaire"]] < pos[ids_map["n_def_a"]]
+    assert pos[ids_map["n_sommaire"]] < pos[ids_map["n_semio_a"]]
+    assert max(pos[ids_map["n_def_a"]], pos[ids_map["n_semio_a"]]) < pos[ids_map["n_exam_a"]]
+    assert pos[ids_map["n_exam_a"]] < pos[ids_map["n_rx_a"]]
+    assert pos[ids_map["n_rx_a"]] < pos[ids_map["n_rx_b"]]
+
+
+def test_unlock_tombe_in_essentiel_and_labels():
+    from Anki_EDN_Installer.unlock_item import MODE_COMPLET, MODE_LABELS, classify_edn_note
+
+    assert MODE_LABELS[MODE_COMPLET] == "Item complet"
+
+    res_tombe = classify_edn_note(
+        flds_str="Traitement probabiliste d'une endocardite\x1fDétails",
+        tags_str="EDN::item-152-Endocardite Rang_B tombé::2024",
+        notetype_name="Basique-EDN",
+    )
+    assert res_tombe["has_tombe_tag"] is True
+    assert res_tombe["is_essential_core"] is True
+
+    res_tombe_fois = classify_edn_note(
+        flds_str="Traitement probabiliste d'une endocardite\x1fDétails",
+        tags_str="EDN::item-152-Endocardite Rang_B tombé::3-fois",
+        notetype_name="Basique-EDN",
+    )
+    assert res_tombe_fois["has_tombe_tag"] is True
+    assert res_tombe_fois["is_essential_core"] is True
+
+    res_tombable = classify_edn_note(
+        flds_str="Score complexe de l'item\x1fDétails",
+        tags_str="EDN::item-152-Endocardite Rang_B EDN::SDD::Tombable score",
+        notetype_name="Basique-EDN",
+    )
+    assert res_tombable["has_tombe_tag"] is False
+    assert res_tombable["is_essential_core"] is False
+
+
+def test_unlock_scaffold_only_without_unsuspending(qapp, temp_unlock_collection):
+    from Anki_EDN_Installer.unlock_item import (
+        MODE_ESSENTIEL,
+        UnlockItemDialog,
+        get_all_edn_items,
+        search_edn_items,
+        unlock_studied_item,
+    )
+
+    col, ids_map = temp_unlock_collection
+    # L'utilisateur débloque manuellement 2 cartes dans Parcourir (dont 1 Rang B)
+    manual_cids = [ids_map["n_rx_b"], ids_map["n_sommaire"]]
+    col.sched.unsuspend_cards(manual_cids)
+
+    endo = search_edn_items(get_all_edn_items(col), "152")[0]
+    assert endo.active_count == 2
+    assert endo.active_new_count == 2
+    assert endo.suspended_count == 6
+
+    # Scaffolder sans débloquer via l'API
+    res = unlock_studied_item(
+        col,
+        endo,
+        mode=MODE_ESSENTIEL,
+        apply_scaffolding=True,
+        learn_now=False,
+        rebuild_filtered=False,
+        unsuspend=False,
+    )
+    assert res["success"] is True
+    assert res["unsuspended_count"] == 0
+    assert res["sorted_new_count"] == 2
+    assert col.get_card(ids_map["n_sommaire"]).due < col.get_card(ids_map["n_rx_b"]).due
+    # Les 6 autres cartes restent suspendues
+    for key, cid in ids_map.items():
+        if cid not in manual_cids:
+            assert col.get_card(cid).queue == -1
+
+    # Vérifier le bouton dans le dialogue Qt
+    dlg = UnlockItemDialog(col=col, initial_query="Endocardite")
+    assert dlg.scaffold_only_btn.isEnabled() is True
+    assert "2" in dlg.scaffold_only_btn.text()
+    dlg.learn_now_cb.setChecked(False)
+    dlg.on_scaffold_only_clicked()
+    assert dlg.selected_item.active_count == 2
+    assert dlg.selected_item.suspended_count == 6
+    assert "aucune carte débloquée" in dlg.feedback_label.text()
+    dlg.close()
+
+
+def test_unlock_item_toggle_and_filtered_decks_multitag_note(qapp, temp_unlock_collection, monkeypatch):
+    from types import SimpleNamespace
+    from Anki_EDN_Installer import card_styles
+    from Anki_EDN_Installer.filtered_decks_dialog import FilteredDecksDialog
+    from Anki_EDN_Installer.unlock_item import (
+        HOME_BUTTON_ELEMENT_ID,
+        UnlockItemDialog,
+        on_deck_browser_will_render_content,
+    )
+
+    col, _ = temp_unlock_collection
+
+    # 1. Quand enableUnlockItemTool=False, le bouton d'accueil n'est pas injecté et le bouton dans Paquets Filtrés est masqué
+    monkeypatch.setattr(card_styles, "load_prefs", lambda: {**card_styles.DEFAULT_PREFS, "enableUnlockItemTool": False})
+    content_disabled = SimpleNamespace(stats="<div>Stats</div>")
+    on_deck_browser_will_render_content(None, content_disabled)
+    assert HOME_BUTTON_ELEMENT_ID not in content_disabled.stats
+
+    fd_dlg = FilteredDecksDialog(initial_query="152")
+    assert fd_dlg.unlock_item_btn.isVisibleTo(fd_dlg) is False
+    assert "un seul paquet filtré" in fd_dlg.multi_tag_info_label.text()
+    assert "multi-taggées" in fd_dlg.multi_tag_info_label.text()
+    assert fd_dlg.search_input.text() == "152"
+    fd_dlg.close()
+
+    # 2. Quand enableUnlockItemTool=True, le bouton d'accueil est injecté et UnlockItemDialog expose le raccourci Paquets Filtrés
+    monkeypatch.setattr(card_styles, "load_prefs", lambda: {**card_styles.DEFAULT_PREFS, "enableUnlockItemTool": True})
+    content_enabled = SimpleNamespace(stats="<div>Stats</div>")
+    on_deck_browser_will_render_content(None, content_enabled)
+    assert HOME_BUTTON_ELEMENT_ID in content_enabled.stats
+
+    u_dlg = UnlockItemDialog(col=col, initial_query="Endocardite")
+    assert hasattr(u_dlg, "filtered_decks_btn")
+    u_dlg.close()

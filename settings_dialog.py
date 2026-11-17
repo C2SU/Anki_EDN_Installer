@@ -104,9 +104,9 @@ RECOMMENDED_ADDONS_CATALOG = [
 
     {
 
-        "id": "Anki_EDN_Stats",
+        "id": "1674438508",
 
-        "alt_ids": ["Anki_EDN_Stats"],
+        "alt_ids": ["Anki_EDN_Stats", "1674438508", "1201122026"],
 
         "module_id": "edn_progress",
 
@@ -114,7 +114,7 @@ RECOMMENDED_ADDONS_CATALOG = [
 
         "description": "Statistiques d'avancement, maîtrise et difficulté des items EDN.",
 
-        "url": "https://c2su.github.io/Anki_EDN/Anki_EDN.html",
+        "url": "https://ankiweb.net/shared/info/1674438508",
 
         "is_core_edn": True,
 
@@ -179,6 +179,24 @@ RECOMMENDED_ADDONS_CATALOG = [
 
     {
 
+        "id": "353547840",
+
+        "alt_ids": ["353547840", "1762336370", "Customize Keyboard Shortcuts", "Customize Keyboard Shortcuts (Enhanced Edition)"],
+
+        "module_id": None,
+
+        "name": "Customize Keyboard Shortcuts",
+
+        "description": "Personnalisation des raccourcis clavier et visualiseur interactif.",
+
+        "url": "https://ankiweb.net/shared/info/353547840",
+
+        "is_core_edn": False,
+
+    },
+
+    {
+
         "id": "759844606",
 
         "alt_ids": ["759844606", "FSRS Helper"],
@@ -190,24 +208,6 @@ RECOMMENDED_ADDONS_CATALOG = [
         "description": "Outils FSRS : avance, report et équilibrage de charge.",
 
         "url": "https://ankiweb.net/shared/info/759844606",
-
-        "is_core_edn": False,
-
-    },
-
-    {
-
-        "id": "501542723",
-
-        "alt_ids": ["501542723", "Auto Sync"],
-
-        "module_id": None,
-
-        "name": "Auto Sync",
-
-        "description": "Synchronisation automatique à l'ouverture et fermeture d'Anki.",
-
-        "url": "https://ankiweb.net/shared/info/501542723",
 
         "is_core_edn": False,
 
@@ -661,6 +661,8 @@ class EDNSettingsDialog(QDialog):
 
         self.addon_rows = []
 
+        self.restart_needed = False
+
         self.module_checkboxes = {}
 
         self.preview_section_cbs = {}
@@ -932,7 +934,11 @@ class EDNSettingsDialog(QDialog):
 
             }}
 
-            QToolTip, CustomLabel, QLabel[customTooltip="true"] {{
+            QDialog#ednSettingsDialog QToolTip,
+            QDialog#ednSettingsDialog QTipLabel,
+            QToolTip,
+            CustomLabel,
+            QLabel[customTooltip="true"] {{
 
                 background-color: {T["tooltip_bg"]};
 
@@ -949,6 +955,15 @@ class EDNSettingsDialog(QDialog):
             }}
 
         """)
+
+        try:
+            from aqt.qt import QToolTip
+            tip_pal = QToolTip.palette()
+            tip_pal.setColor(QPalette.ColorRole.ToolTipBase, QColor(T["tooltip_bg"]))
+            tip_pal.setColor(QPalette.ColorRole.ToolTipText, QColor(T["tooltip_text"]))
+            QToolTip.setPalette(tip_pal)
+        except Exception:
+            pass
 
 
 
@@ -1355,7 +1370,7 @@ class EDNSettingsDialog(QDialog):
 
 
 
-        self.addon_rows.append({
+        row_data = {
 
             "item": item,
 
@@ -1365,7 +1380,9 @@ class EDNSettingsDialog(QDialog):
 
             "matched_id": matched_id
 
-        })
+        }
+
+        self.addon_rows.append(row_data)
 
 
 
@@ -1379,15 +1396,267 @@ class EDNSettingsDialog(QDialog):
 
 
 
-        # Tooltip propre au survol
+        if status == "not_installed":
 
-        card_frame.setToolTip(f"{item['name']}\n{item['description']}\nURL : {item['url']}")
+            cb.setToolTip(f"Cliquer pour télécharger et installer {item['name']} depuis AnkiWeb")
 
-        cb.setToolTip(f"Activer / Désactiver {item['name']}")
+            cb.clicked.connect(lambda checked: self._on_addon_cb_clicked(checked, item, cb, badge, row_data, card_frame))
+
+            card_frame.setCursor(Qt.CursorShape.PointingHandCursor)
+
+            card_frame.setToolTip(
+
+                f"{item['name']}\n{item['description']}\nURL : {item['url']}\n\n"
+
+                "Statut : Non installé (cliquez pour télécharger et installer depuis AnkiWeb)"
+
+            )
+
+            def _card_mouse_press(event):
+
+                try:
+
+                    pos = event.pos() if hasattr(event, "pos") else None
+
+                    child = card_frame.childAt(pos) if pos is not None else None
+
+                except Exception:
+
+                    child = None
+
+                if child != cb and not (child and child.inherits("QCheckBox")):
+
+                    if row_data.get("status") == "not_installed" and not cb.isChecked():
+
+                        cb.setChecked(True)
+
+                        self._on_addon_cb_clicked(True, item, cb, badge, row_data, card_frame)
+
+                try:
+
+                    QFrame.mousePressEvent(card_frame, event)
+
+                except TypeError:
+
+                    pass
+
+            card_frame.mousePressEvent = _card_mouse_press
+
+        else:
+
+            card_frame.setToolTip(f"{item['name']}\n{item['description']}\nURL : {item['url']}")
+
+            cb.setToolTip(f"Activer / Désactiver {item['name']}")
 
 
 
         return card_frame
+
+
+
+    def _on_addon_cb_clicked(self, checked: bool, item: dict, cb: QCheckBox, badge: QLabel, row_data: dict, card_frame: QFrame = None):
+
+        """Déclenché lors du clic sur la case d'un add-on non installé pour lancer son téléchargement."""
+
+        if row_data.get("status") != "not_installed":
+
+            return
+
+
+
+        if not checked:
+
+            return
+
+
+
+        self._download_and_install_addon(item, cb, badge, row_data, card_frame)
+
+
+
+    def _download_and_install_addon(self, item: dict, cb: QCheckBox, badge: QLabel, row_data: dict, card_frame: QFrame = None):
+
+        """Télécharge et installe un add-on depuis AnkiWeb via download_addons."""
+
+        if not mw or not hasattr(mw, "addonManager") or not mw.addonManager:
+
+            from aqt.utils import showInfo
+
+            showInfo("Gestionnaire d'add-ons Anki indisponible.", parent=self)
+
+            cb.setChecked(False)
+
+            return
+
+
+
+        # Résolution de l'identifiant numérique AnkiWeb
+
+        aid_raw = item.get("id")
+
+        aid_int = None
+
+        if aid_raw and str(aid_raw).isdigit():
+
+            aid_int = int(aid_raw)
+
+        else:
+
+            for alt in item.get("alt_ids", []):
+
+                if alt and str(alt).isdigit():
+
+                    aid_int = int(alt)
+
+                    break
+
+
+
+        if not aid_int:
+
+            from aqt.utils import showInfo
+
+            showInfo(f"Code de téléchargement AnkiWeb introuvable pour {item['name']}.", parent=self)
+
+            cb.setChecked(False)
+
+            return
+
+
+
+        try:
+
+            from aqt.addons import download_addons, InstallOk
+
+        except ImportError:
+
+            from aqt.utils import showInfo
+
+            showInfo("Module de téléchargement d'add-ons indisponible dans cette version d'Anki.", parent=self)
+
+            cb.setChecked(False)
+
+            return
+
+
+
+        # Verrouiller temporairement pour éviter les doubles clics
+
+        cb.setEnabled(False)
+
+        if card_frame:
+
+            card_frame.setEnabled(False)
+
+
+
+        def _on_download_done(log):
+
+            cb.setEnabled(True)
+
+            if card_frame:
+
+                card_frame.setEnabled(True)
+
+
+
+            has_success = False
+
+            for entry in log:
+
+                res = entry[1] if isinstance(entry, (tuple, list)) and len(entry) > 1 else entry
+
+                if (InstallOk and isinstance(res, InstallOk)) or type(res).__name__ == "InstallOk":
+
+                    has_success = True
+
+                    break
+
+                elif not isinstance(res, Exception) and getattr(res, "name", None):
+
+                    has_success = True
+
+                    break
+
+
+
+            if has_success:
+
+                row_data["status"] = "installed_active"
+
+                row_data["matched_id"] = str(aid_int)
+
+                cb.setChecked(True)
+
+                cb.setToolTip(f"Activer / Désactiver {item['name']}")
+
+
+
+                T = self.T
+
+                badge_style = f"background: {T['badge_active_bg']}; color: {T['badge_active_text']}; border: 1px solid {T['badge_active_border']};"
+
+                badge.setText(f"<span style='padding: 2px 7px; border-radius: 4px; font-size: 10.5px; font-weight: bold; {badge_style}'>Actif</span>")
+
+
+
+                if card_frame:
+
+                    card_frame.setCursor(Qt.CursorShape.ArrowCursor)
+
+                    card_frame.setToolTip(f"{item['name']}\n{item['description']}\nURL : {item['url']}")
+
+
+
+                if item.get("module_id") == "linked_cards":
+
+                    self._update_linked_cards_tab_visibility()
+
+
+
+                if str(aid_int) == "2040501954" or item.get("id") == "2040501954":
+                    try:
+                        import_edn_symbols(force=True)
+                    except Exception as e:
+                        print(f"[EDN Settings] Erreur import symboles post-download: {e}")
+
+                self.restart_needed = True
+
+
+
+                from aqt.utils import tooltip
+
+                tooltip(
+
+                    f"L'add-on '{item['name']}' a été téléchargé et installé avec succès.\n"
+
+                    "Il sera actif après redémarrage d'Anki.",
+
+                    period=4000,
+
+                    parent=self
+
+                )
+
+            else:
+
+                cb.setChecked(False)
+
+                try:
+
+                    from aqt.addons import show_log_to_user
+
+                    show_log_to_user(self, log, title="Téléchargement d'add-on")
+
+                except Exception:
+
+                    from aqt.utils import showWarning
+
+                    showWarning(f"Échec du téléchargement de l'add-on '{item['name']}'.", parent=self)
+
+
+
+        download_addons(self, mw.addonManager, [aid_int], _on_download_done)
 
 
 
@@ -1430,6 +1699,8 @@ class EDNSettingsDialog(QDialog):
 
 
         self.addon_rows = []
+
+        self.restart_needed = False
 
         self.module_checkboxes = {}
 
@@ -1574,6 +1845,61 @@ class EDNSettingsDialog(QDialog):
 
 
         container_layout.addWidget(mw_frame)
+
+
+
+        # Section 3b : Interface & Outils EDN
+
+        container_layout.addSpacing(6)
+
+        tools_header = make_selectable_label(
+
+            f"<span style='font-size: 13.5px; font-weight: bold; color: {T['text_main']};'>Interface & Outils EDN</span>"
+
+        )
+
+        container_layout.addWidget(tools_header)
+
+
+
+        tools_frame = QFrame()
+
+        tools_frame.setStyleSheet(f"""
+
+            QFrame {{
+
+                background-color: {T["bg_card"]};
+
+                border: 1px solid {T["border_card"]};
+
+                border-radius: 6px;
+
+            }}
+
+        """)
+
+        tools_frame_layout = QVBoxLayout(tools_frame)
+
+        tools_frame_layout.setContentsMargins(14, 10, 14, 10)
+
+        tools_frame_layout.setSpacing(8)
+
+
+
+        self.cb_enable_unlock_item = QCheckBox(
+            "Afficher l'outil « Débloquer un item étudié » (accueil, menu EDN et paquets filtrés)"
+        )
+
+        self.cb_enable_unlock_item.setChecked(self.prefs.get("enableUnlockItemTool", True))
+
+        self.cb_enable_unlock_item.setToolTip(
+            "Affiche ou masque le bouton « Débloquer un item étudié » sur l'écran d'accueil, "
+            "dans le menu EDN et dans le générateur de paquets filtrés."
+        )
+
+        tools_frame_layout.addWidget(self.cb_enable_unlock_item)
+
+        container_layout.addWidget(tools_frame)
 
 
 
@@ -2040,7 +2366,7 @@ class EDNSettingsDialog(QDialog):
 
             "Colore la barre verticale d'icône (gauche) du premier champ selon le rang officiel :\n"
 
-            "• Rang A : Essentiel (par défaut Noir)\n"
+            "• Rang A : Essentiel (par défaut Rouge)\n"
 
             "• Rang B : Important (par défaut Bleu)\n"
 
@@ -2180,25 +2506,55 @@ class EDNSettingsDialog(QDialog):
 
 
 
-        # Toggle 2 : Pictogrammes Desktop & Mobile
-
+        # Toggle 2 : Pictogrammes Desktop & Mobile (sur la même ligne)
+        icons_row = QHBoxLayout()
+        icons_row.setSpacing(12)
         self.cb_icons = QCheckBox("Pictogrammes de matière (sur cet ordinateur)")
-
         self.cb_icons.setChecked(self.prefs.get("showSpecialtyIcon", True))
-
         self.cb_icons.setToolTip("Affiche automatiquement les icônes de spécialités médicales (Cardio, Neuro, Hémato...) au-dessus du Recto sur ordinateur.")
-
-        gv_layout.addWidget(self.cb_icons)
-
-
-
-        self.cb_icons_mobile = QCheckBox("Pictogrammes de matière (sur mobile)")
-
+        icons_row.addWidget(self.cb_icons)
+        icons_row.addStretch()
+        self.cb_icons_mobile = QCheckBox("Activer sur mobile")
+        self.cb_icons_mobile.setMinimumWidth(145)
         self.cb_icons_mobile.setChecked(self.prefs.get("showSpecialtyIconMobile", False))
-
         self.cb_icons_mobile.setToolTip("Affiche les icônes de spécialités médicales lors de vos révisions sur smartphone (AnkiMobile / AnkiDroid).")
+        icons_row.addWidget(self.cb_icons_mobile)
+        gv_layout.addLayout(icons_row)
 
-        gv_layout.addWidget(self.cb_icons_mobile)
+        # Toggle 2b : Étoiles "tombé" Desktop & Mobile (sur la même ligne)
+        tombe_row = QHBoxLayout()
+        tombe_row.setSpacing(12)
+        self.cb_tombe_stars = QCheckBox("Étoiles « tombé » (sur cet ordinateur)")
+        self.cb_tombe_stars.setChecked(self.prefs.get("showTombeStars", True))
+        self.cb_tombe_stars.setToolTip(
+            "Affiche en haut à gauche des cartes (recto et verso) autant d'étoiles que d'occurrences\n"
+            "d'annales où la carte est tombée (tag tombé::X-fois, max 3 ; sources dans Références)."
+        )
+        tombe_row.addWidget(self.cb_tombe_stars)
+        tombe_row.addStretch()
+        self.cb_tombe_stars_mobile = QCheckBox("Activer sur mobile")
+        self.cb_tombe_stars_mobile.setMinimumWidth(145)
+        self.cb_tombe_stars_mobile.setChecked(self.prefs.get("showTombeStarsMobile", True))
+        self.cb_tombe_stars_mobile.setToolTip(
+            "Affiche les étoiles « tombé » en haut à gauche des cartes lors de vos révisions sur smartphone (AnkiMobile / AnkiDroid)."
+        )
+        tombe_row.addWidget(self.cb_tombe_stars_mobile)
+        gv_layout.addLayout(tombe_row)
+
+
+
+        # Toggle 2c : Infobulles au survol des symboles et abréviations médicales
+
+        self.cb_symbol_tooltips = QCheckBox("Infobulles explicatives au survol des symboles et abréviations (☐, ◊, PDCB...)")
+
+        self.cb_symbol_tooltips.setChecked(self.prefs.get("showSymbolTooltips", True))
+
+        self.cb_symbol_tooltips.setToolTip(
+            "Entoure automatiquement les symboles (☐, ◊, ∀, ¬...) et abréviations médicales (PDCB, TMO, aTDM...)\n"
+            "d'une infobulle native au survol pendant la révision pour apprendre le code de Léo Picat sans quitter sa carte."
+        )
+
+        gv_layout.addWidget(self.cb_symbol_tooltips)
 
 
 
@@ -2214,37 +2570,25 @@ class EDNSettingsDialog(QDialog):
 
 
 
-        # Toggle 3b : Drapeau virtuel pour les nouvelles cartes (sur cet ordinateur)
-
+        # Toggle 3b & 3c : Drapeau virtuel pour les nouvelles cartes Desktop & Mobile (sur la même ligne)
+        virtual_new_row = QHBoxLayout()
+        virtual_new_row.setSpacing(12)
         self.cb_virtual_new_pc = QCheckBox("Drapeau virtuel pour les nouvelles cartes (sur cet ordinateur)")
-
         self.cb_virtual_new_pc.setChecked(self.prefs.get("virtualBlueFlagForNewCards", False))
-
         self.cb_virtual_new_pc.setToolTip(
-
             "Affiche l'encadrement coloré sur les cartes neuves lors de leur toute première révision (recto et verso) sur ordinateur,\n"
-
             "sans modifier le drapeau dans la base Anki. L'encadrement disparaît automatiquement dès la deuxième révision."
-
         )
-
-        gv_layout.addWidget(self.cb_virtual_new_pc)
-
-
-
-        # Toggle 3c : Drapeau virtuel pour les nouvelles cartes (sur mobile)
-
-        self.cb_virtual_new_mobile = QCheckBox("Drapeau virtuel pour les nouvelles cartes (sur mobile)")
-
+        virtual_new_row.addWidget(self.cb_virtual_new_pc)
+        virtual_new_row.addStretch()
+        self.cb_virtual_new_mobile = QCheckBox("Activer sur mobile")
+        self.cb_virtual_new_mobile.setMinimumWidth(145)
         self.cb_virtual_new_mobile.setChecked(self.prefs.get("virtualBlueFlagForNewCardsMobile", False))
-
         self.cb_virtual_new_mobile.setToolTip(
-
             "Affiche l'encadrement coloré sur les cartes neuves lors de leur première révision sur smartphone (AnkiMobile / AnkiDroid)."
-
         )
-
-        gv_layout.addWidget(self.cb_virtual_new_mobile)
+        virtual_new_row.addWidget(self.cb_virtual_new_mobile)
+        gv_layout.addLayout(virtual_new_row)
 
 
 
@@ -3821,6 +4165,10 @@ class EDNSettingsDialog(QDialog):
 
         self.cb_icons_mobile.setChecked(DEFAULT_PREFS["showSpecialtyIconMobile"])
 
+        self.cb_tombe_stars.setChecked(DEFAULT_PREFS["showTombeStars"])
+
+        self.cb_tombe_stars_mobile.setChecked(DEFAULT_PREFS["showTombeStarsMobile"])
+
         self.cb_flags.setChecked(DEFAULT_PREFS["showFlagBorders"])
 
         self.cb_virtual_new_pc.setChecked(DEFAULT_PREFS["virtualBlueFlagForNewCards"])
@@ -3862,6 +4210,12 @@ class EDNSettingsDialog(QDialog):
         self.cb_auto_capitalize_linked_cards.setChecked(DEFAULT_PREFS.get("autoCapitalizeLinkedCards", True))
 
         self.cb_clean_clipboard_formatting.setChecked(DEFAULT_PREFS.get("cleanClipboardFormatting", True))
+
+        self.cb_symbol_tooltips.setChecked(DEFAULT_PREFS.get("showSymbolTooltips", True))
+
+        if hasattr(self, "cb_enable_unlock_item"):
+
+            self.cb_enable_unlock_item.setChecked(DEFAULT_PREFS.get("enableUnlockItemTool", True))
 
 
 
@@ -3947,7 +4301,7 @@ class EDNSettingsDialog(QDialog):
 
 
 
-        tooltip("Valeurs par défaut rétablies. Cliquez sur Enregistrer pour appliquer.")
+        tooltip("Valeurs par défaut rétablies. Cliquez sur Valider et Sauvegarder pour appliquer.")
 
 
 
@@ -3985,9 +4339,19 @@ class EDNSettingsDialog(QDialog):
 
                     aid = item.get("id")
 
-                    if aid and aid.isdigit() and mgr and hasattr(mgr, "install"):
+                    if not aid or not str(aid).isdigit():
 
-                        addons_to_install.append((aid, item["name"]))
+                        for alt in item.get("alt_ids", []):
+
+                            if alt and str(alt).isdigit():
+
+                                aid = alt
+
+                                break
+
+                    if aid and str(aid).isdigit() and mgr:
+
+                        addons_to_install.append((int(aid), item["name"]))
 
                 elif status == "installed_disabled":
 
@@ -4035,29 +4399,28 @@ class EDNSettingsDialog(QDialog):
 
         if addons_to_install and mgr:
 
-            if hasattr(mw, "progress"):
+            try:
 
-                mw.progress.start(immediate=True, label="Installation des add-ons...")
+                from aqt.addons import download_addons
 
-            for aid, aname in addons_to_install:
+                ids_to_dl = [aid for aid, _ in addons_to_install]
 
-                try:
+                def _batch_done(log):
+                    if any(str(aid) == "2040501954" for aid, _ in addons_to_install):
+                        try:
+                            import_edn_symbols(force=True)
+                        except Exception:
+                            pass
 
-                    res = mgr.install(mw, aid)
+                download_addons(mw, mgr, ids_to_dl, _batch_done)
 
-                    if res:
+                installed_count = len(ids_to_dl)
 
-                        installed_count += 1
+                restart_needed = True
 
-                        restart_needed = True
+            except Exception as e:
 
-                except Exception as e:
-
-                    print(f"[EDN Settings] Erreur installation {aname} ({aid}): {e}")
-
-            if hasattr(mw, "progress"):
-
-                mw.progress.finish()
+                print(f"[EDN Settings] Erreur installation batch add-ons: {e}")
 
 
 
@@ -4074,6 +4437,10 @@ class EDNSettingsDialog(QDialog):
         self.prefs["showSpecialtyIcon"] = self.cb_icons.isChecked()
 
         self.prefs["showSpecialtyIconMobile"] = self.cb_icons_mobile.isChecked()
+
+        self.prefs["showTombeStars"] = self.cb_tombe_stars.isChecked()
+
+        self.prefs["showTombeStarsMobile"] = self.cb_tombe_stars_mobile.isChecked()
 
         self.prefs["showFlagBorders"] = self.cb_flags.isChecked()
 
@@ -4105,11 +4472,37 @@ class EDNSettingsDialog(QDialog):
 
         self.prefs["cleanClipboardFormatting"] = self.cb_clean_clipboard_formatting.isChecked()
 
+        self.prefs["showSymbolTooltips"] = self.cb_symbol_tooltips.isChecked()
+
+        if hasattr(self, "cb_enable_unlock_item"):
+
+            self.prefs["enableUnlockItemTool"] = self.cb_enable_unlock_item.isChecked()
+
 
 
         save_prefs(self.prefs)
 
         _push_prefs_to_webview()
+        try:
+            if mw and getattr(mw, "state", None) == "review" and getattr(mw, "reviewer", None) and mw.reviewer.card:
+                if hasattr(mw.reviewer, "_redraw_current_card"):
+                    mw.reviewer._redraw_current_card()
+        except Exception:
+            pass
+
+        try:
+
+            from .unlock_item import set_unlock_item_menu_visibility
+
+            set_unlock_item_menu_visibility(self.prefs.get("enableUnlockItemTool", True))
+
+            if mw and getattr(mw, "state", None) == "deckBrowser" and getattr(mw, "deckBrowser", None):
+
+                mw.deckBrowser.refresh()
+
+        except Exception:
+
+            pass
 
 
 
@@ -4239,7 +4632,7 @@ class EDNSettingsDialog(QDialog):
 
             msg += f"\n\n{len(addons_to_enable)} add-on(s) réactivé(s)."
 
-        if restart_needed or installed_count > 0 or addons_to_enable:
+        if restart_needed or getattr(self, "restart_needed", False) or installed_count > 0 or addons_to_enable:
 
             msg += "\n\nVeuillez redémarrer Anki pour finaliser l'application."
 

@@ -23,6 +23,7 @@ EXCLUDES = [
     "test_edn_redaction_and_fsrs.py",
     "test_migrate_edn_tags.py",
     "test_nid_repair.py",
+    "test_settings_dialog_addon_download.py",
     "console_migration_sdd.py",
     "update_nid_mapping.py"
 ]

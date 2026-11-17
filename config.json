@@ -3,19 +3,17 @@
     "share_code": "mango-may-georgia-eleven-moon-orange",
     "addons": [
         1957538407,
-        501542723,
         1052724801,
-        445658251,
-        303415230,
-        1906641654,
-        2040501954
+        2040501954,
+        1674438508,
+        445658251
     ],
     "preset_name": "Anki EDN",
     "options": {
-        "new_per_day": 30,
+        "new_per_day": 50,
         "reviews_per_day": 9999,
         "desired_retention": 0.88,
-        "leech_threshold": 20
+        "leech_threshold": 12
     },
     "modules": {
         "history": true,

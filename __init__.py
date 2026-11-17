@@ -46,6 +46,23 @@ def init_addon():
                 shortcut_key="filtered_decks_generate"
             )
 
+            try:
+                from .unlock_item import (
+                    is_unlock_item_enabled,
+                    set_unlock_item_menu_visibility,
+                    show_unlock_item_dialog,
+                )
+                register_action(
+                    "filtered_decks",
+                    "Débloquer un item étudié...",
+                    show_unlock_item_dialog,
+                    shortcut="Ctrl+Alt+U",
+                    shortcut_key="unlock_studied_item"
+                )
+                set_unlock_item_menu_visibility(is_unlock_item_enabled())
+            except Exception as e:
+                log(f"Erreur chargement action unlock_item: {e}")
+
             def _quick_rebuild():
                 dids = get_edn_filtered_deck_ids()
                 if not dids:
@@ -91,6 +108,13 @@ def init_addon():
         except Exception as e:
             log(f"Erreur chargement filtered_decks: {e}")
     
+    try:
+        from .unlock_item import init_unlock_item_hooks
+        init_unlock_item_hooks()
+        log("Unlock item DeckBrowser hooks loaded.")
+    except Exception as e:
+        log(f"Erreur chargement hooks unlock_item: {e}")
+
     try:
         from .guide import init_guide_hooks
         init_guide_hooks()

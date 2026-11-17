@@ -1,69 +1,73 @@
-# Anki EDN Installer & Assistant de Configuration
+# Anki EDN Installer
 
-Module central d'installation, d'orchestration et de gestion avancee pour l'ecosysteme Anki EDN (DFASM / ECN).
+Extension tout-en-un pour installer, configurer et utiliser le deck **Anki EDN** au quotidien sans réglage complexe.
 
 > [!CAUTION]
-> **Avertissement - Version de Test (BETA)**
-> Cet add-on applique des modifications automatiques aux preferences globales de profil Anki, orchestre des paquets filtres a grande echelle et injecte des mecanismes de protection sur les transactions locales.
-> **Une sauvegarde complete de votre profil Anki (export .colpkg avec medias) est imperative avant toute manipulation.**
+> **Sauvegarde préalable obligatoire** : Avant toute configuration initiale ou modification massive, réalisez une sauvegarde complète de votre collection (`Fichier > Exporter > Collection Anki (.colpkg)` en cochant l'inclusion des médias).
 
 ---
 
-## Risques Encourus et Bonnes Pratiques
+## Bonnes Pratiques
 
-L'utilisation de ce module d'automatisation implique la prise en compte des points suivants :
-
-1. **Reconfiguration automatique des options globales :** L'assistant met a jour vos reglages AnkiWeb (synchronisation a l'ouverture et fermeture, synchronisation automatique des medias) et AnkiCollab. Pensez a verifier ces options apres execution.
-2. **Impact sur les files d'attente (Paquets Filtres) :** La creation et la regeneration de paquets filtres deplacent temporairement les cartes hors de leurs paquets d'origine. Si vous devez synchroniser votre profil ou desactiver l'add-on, utilisez prealablement le raccourci `Ctrl + Alt + E` pour vider tous les paquets filtres et restituer les cartes.
-3. **Protection des champs personnalises :** La protection contre l'ecrasement s'appuie sur les noms de champs definis dans les modeles de notes. Si vous renommez manuellement ces champs, mettez a jour la configuration dans les reglages EDN.
-4. **Interactions entre extensions :** L'add-on intercepte et securise plusieurs composants de l'interface (WebEngine, boites de dialogue). Des incompatibilites mineures peuvent survenir avec d'autres extensions modifiant les menus ou l'interface d'Anki.
+- **Synchronisation et profil** : L'assistant applique la configuration recommandée (FSRS, limites quotidiennes, abonnement AnkiCollab) à votre profil. Vérifiez vos réglages avant de confirmer.
+- **Paquets filtrés** : Videz toujours vos paquets filtrés avant de synchroniser sur AnkiWeb ou de désinstaller l'extension (`Ctrl + Alt + E`).
+- **Champs personnels** : Si vous avez modifié les noms de champs protégés dans AnkiCollab, vérifiez la liste des champs protégés dans la configuration de l'extension.
+- **Compatibilité** : En cas de conflit mineur avec une autre extension (raccourcis ou thèmes), testez l'extension seule ou vérifiez les raccourcis configurés.
 
 ---
 
-## Fonctionnalites Principales
+## Fonctionnalités Principales
 
-- **Assistant d'Installation et de Configuration Unifié :**
-  - Parcours guidé en 3 étapes dynamiques : installation automatique des extensions requises, abonnement AnkiCollab surveillé en direct, puis application des réglages en un clic.
-  - Synchronisation AnkiWeb préalable pour éviter tout conflit appareil / AnkiWeb.
-  - Détection et téléchargement en 1 clic des extensions requises (AnkiCollab `1957538407`, BetterSearch `1052724801`, Symboles `1762336370`, Statistiques EDN `1201122026`, Lier les cartes `445658251`).
-  - Guidage d'abonnement au paquet AnkiCollab avec copie automatique de la clé de partage et détection en temps réel de l'arrivée du paquet `Anki EDN`.
-  - Application du préréglage de révision recommandé (`Anki EDN` : 30 nouvelles cartes/jour, 9999 révisions/jour, FSRS 88 %, seuil sangsue 20 échecs) et suspension initiale intelligente (distinction automatique entre nouveau profil et progression existante).
-- **Intégrité et Respect des Révisions de l'Étudiant :**
-  - Aucune désuspension intempestive de cartes au démarrage : l'étudiant reste maître du déblocage progressif de ses items et de ses rangs (A/B).
-  - Suppression des popups intrusifs de vérification automatique au lancement.
-- **Réparation des NID (Linked Cards) :** Module natif intégrant la table d'identité des notes pour corriger et aligner automatiquement les identifiants (NID) dès la fin du téléchargement du paquet sur AnkiCollab ou à tout moment via les préférences Anki EDN (onglet Addons et Outils). L'extension externe de réparation des nids n'est plus requise ni proposée.
-- **Protection Active des Champs Utilisateur :** Empeche les fusions collaboratives d'ecraser vos annotations et notes personnelles (`Notes personnelles`, `Moyens mnémotechniques`), avec empreinte locale de securite.
-- **Generateur Hierarchique de Paquets Filtres & Deck ECOS :** Creation automatisee de paquets filtres organises par specialite et par item (367 items EDN couverts), ainsi que generation dediee du paquet filtré ECOS regroupant l'ensemble des Situations de Depart (balises EDN::SDD).
-- **Actions Rapides sur Paquets Filtres (Page d'aperçu) :** Encart d'actions directes integre a chaque paquet filtre feuille :
-  - *Voir dans l'explorateur* : ouvre l'explorateur cible sur toutes les cartes de l'item / volet (actives et suspendues).
-  - *Dé-suspendre rangs A* : reactive en 1 clic les cartes de rang A restantes (avec compteur dynamique) et regenere le paquet.
-  - *Dé-suspendre tout* : reactive toutes les cartes suspendues de l'item et regenere le paquet.
-- **Outils d'Edition et de Revision Medicale :**
-  - **Guide Rédactionnel & Puces :** Normalisation typographique medicale et insertion de listes hierarchiques.
-  - **Importateur de Symboles :** Raccourcis de remplacement automatique (`->`, `>=`, `+-`, etc.) dans l'editeur.
-  - **Ajout d'Etiquette a la Volee :** Transféré et intégré à l'add-on *Anki EDN - Lier les cartes* (raccourci `T` par défaut) pour bénéficier du moteur de suggestions intelligentes basé sur vos étiquettes réelles.
-  - **Reglages Visuels des Cartes :** Personnalisation de la police, de la taille et de l'affichage des bandeaux sur les cartes EDN.
-  - **Rappel d'Optimisation FSRS :** Suivi mensuel de l'optimisation des parametres FSRS.
-- **Raccourcis Clavier Dedies & Actions :**
-  - `Ctrl + Alt + F` : Ouvrir l'interface du generateur de paquets filtres.
-  - `Génération du Deck ECOS (SDD)` : Bouton dédié et sélection au contact des matières dans le générateur de paquets filtrés.
-  - `Ctrl + Alt + R` : Lancer la regeneration complete des paquets filtres EDN.
-  - `Ctrl + Alt + E` : Vider integralement tous les paquets filtres EDN.
-  - *(Fonctionnalité d'ajout d'étiquette à la volée migrée dans l'add-on Lier les cartes)*
+### 1. Assistant d'Installation Guidé
+Accessible depuis le menu **Anki EDN**, l'assistant configure votre environnement étape par étape :
+- **Synchronisation AnkiWeb préalable** pour sécuriser votre collection avant les réglages.
+- **Installation en un clic** des extensions recommandées (`1957538407`, `1052724801`, `2040501954`, `1674438508`, `445658251`) et du gestionnaire de raccourcis (`353547840`).
+- **Abonnement automatique AnkiCollab** dès la connexion au compte.
+- **Préréglage `Anki EDN` prêt à l'emploi** : 50 nouvelles cartes/jour, révisions illimitées, FSRS activé à 88 % de rétention et seuil sangsue fixé à 12 échecs avec suspension automatique.
+
+### 2. Déblocage Progressif d'un Item Étudié
+Disponible directement sur l'écran d'accueil d'Anki, dans le générateur de paquets filtrés ou via `Ctrl + Alt + U` :
+- **Recherche rapide** par numéro ou intitulé d'item (ex. `145` ou `Endocardite`).
+- **3 paliers de déblocage** :
+  - *Essentiel (Cartes Sommaires + Rang A)* : pour démarrer sans se noyer.
+  - *Rang A complet* : l'ensemble des connaissances de rang A.
+  - *Item complet (Rang A + Rang B)* : la totalité de l'item.
+- **Tri « Scaffolding » et apprentissage immédiat** : ordonne automatiquement les nouvelles cartes débloquées (*Sommaire -> Définitions & Sémiologie -> Examens complémentaires -> Thérapeutique & Scores*) avec option de mise en file *Learn Now* dans le bon ordre.
+
+### 3. Générateur Hiérarchique de Paquets Filtrés & ECOS
+Accessible via `Ctrl + Alt + F` ou le bouton **Paquets Filtrés EDN** :
+- Navigation structurée dans les **367 items EDN** par spécialité et par item, plus un onglet dédié aux **ECOS (`EDN::SDD`)**.
+- **Actions rapides par item** : *Voir dans l'explorateur*, *Dé-suspendre rangs A* et *Dé-suspendre tout*.
+- Création automatique de paquets filtrés combinant cartes à réviser et nouvelles cartes selon vos filtres.
+
+### 4. Intégrité, Protection et Outils Quotidiens
+- **Protection active** : aucune carte n'est dé-suspendue automatiquement au démarrage, vos champs personnels restent protégés lors des mises à jour collaboratives, et les identifiants des cartes liées sont vérifiés automatiquement.
+- **Aide à l'édition et personnalisation** : insertion rapide de symboles médicaux et de puces dans l'éditeur, infobulles visuelles natives sur les symboles des cartes, et réglages d'affichage dédiés.
+- **Suivi FSRS** : rappel mensuel d'optimisation de vos paramètres FSRS selon votre rythme de révision.
 
 ---
 
-## Utilisation
+## Raccourcis Clavier
 
-1. Ouvrez Anki, puis rendez-vous dans le menu **Anki EDN > Rétablir les réglages du tuto...** pour lancer l'assistant d'installation et de diagnostic.
-2. Pour verifier les cartes ajoutees ou modifiees apres une synchronisation AnkiCollab, cliquez sur **Anki EDN > Vérifier les nouveautés du paquet**.
-3. Pour reviser un sous-ensemble precis du programme, ouvrez le generateur via **Anki EDN > Paquets Filtrés > Générateur de paquets filtrés...** (`Ctrl + Alt + F`).
-4. Pour configurer les modules, les champs proteges, les styles de cartes ou les raccourcis, ouvrez **Anki EDN > Paramètres EDN...**.
+| Raccourci | Action |
+| :--- | :--- |
+| `Ctrl + Alt + U` | Débloquer un item étudié |
+| `Ctrl + Alt + F` | Ouvrir le générateur de paquets filtrés EDN |
+| `Ctrl + Alt + R` | Rafraîchir les paquets filtrés |
+| `Ctrl + Alt + E` | Vider tous les paquets filtrés |
 
 ---
 
-## Compatibilite
+## Démarrage Rapide
 
-- Anki 23.10+, Anki 24.x, Anki 25.x+
-- PyQt6 / Qt6
-- Fonctionne en synergie avec la suite officielle : Lier les cartes, EDN Stats, AnkiCollab
+1. Ouvrez Anki et cliquez sur le menu **Anki EDN** dans la barre supérieure.
+2. Lancez l'assistant d'installation et suivez les étapes à l'écran.
+3. Utilisez **Débloquer un item étudié** (`Ctrl + Alt + U`) après chaque item révisé pour libérer les cartes progressivement.
+4. Appuyez sur `Ctrl + Alt + F` pour réviser par spécialité, par item ou préparer les ECOS.
+
+---
+
+## Compatibilité
+
+- **Anki** : 23.10+, 24.x et 25.x+ (Qt6).
+- **Suite Anki EDN** : conçu pour fonctionner de concert avec *Lier les cartes*, *EDN Stats* et *AnkiCollab*.

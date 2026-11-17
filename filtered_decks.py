@@ -29,38 +29,47 @@ IGNORED_TAG_PREFIXES = (
     "ankicollab_protect", "mot-compliqué"
 )
 
-# Liste canonique ordonnée des principales disciplines de l'internat / EDN
-CANONICAL_SPECIALTIES = [
+# Liste de référence des matières EDN (alignée sur le preset "Actu" d'Anki EDN Stats)
+EDN_ACTU_SUBJECTS = [
+    "Anatomie",
+    "Anesthésie",
+    "Antibiothérapie",
+    "CMF",
     "Cardiologie",
-    "Pneumologie",
-    "Neurologie",
-    "Gastro-entérologie",
-    "Néphrologie",
-    "Infectiologie",
-    "Urgences",
-    "Pédiatrie",
-    "Gynécologie",
-    "Psychiatrie",
-    "Locomoteur",
-    "Oncologie",
     "Dermatologie",
-    "Hématologie",
-    "Urologie",
-    "Immunologie",
-    "Endocrinologie",
-    "ORL",
-    "Ophtalmologie",
-    "Gériatrie",
-    "Santé-publique",
-    "Pharmacologie",
-    "MPR",
     "Douleur",
-    "Sémiologie",
+    "Endocrinologie",
+    "Gastro-entérologie",
+    "Gynécologie",
+    "Gériatrie",
+    "Hématologie",
     "Imagerie",
-    "Épidémiologie",
+    "Immunologie",
+    "Infectiologie",
+    "Locomoteur",
+    "MPR",
+    "Neurochirurgie",
+    "Neurologie",
     "Nutrition",
-    "ECOS"
+    "Néphrologie",
+    "ORL",
+    "Oncologie",
+    "Ophtalmologie",
+    "Orthopédie",
+    "Pharmacologie",
+    "Physiologie",
+    "Pneumologie",
+    "Psychiatrie",
+    "Pédiatrie",
+    "Rhumatologie",
+    "Réanimation",
+    "Santé-publique",
+    "Urgences",
+    "Urologie",
 ]
+
+# Liste canonique ordonnée des principales disciplines de l'internat / EDN (+ section ECOS pour les SDD)
+CANONICAL_SPECIALTIES = EDN_ACTU_SUBJECTS + ["ECOS"]
 
 
 def normalize_tag_key(tag: str) -> str:
@@ -72,24 +81,27 @@ def normalize_tag_key(tag: str) -> str:
     return t
 
 
+_ACTU_SUBJECT_KEYS = {normalize_tag_key(s): s for s in EDN_ACTU_SUBJECTS}
+
+
 def is_specialty_tag(tag: str) -> bool:
-    """Vérifie si un tag correspond à une spécialité médicale candidate."""
+    """Vérifie si un tag correspond à une matière EDN de référence (preset Actu)."""
     t = tag.lower().strip()
     if t.startswith("edn::") or t.startswith("item-") or t.startswith("item_") or t.startswith("item::"):
         return False
     for prefix in IGNORED_TAG_PREFIXES:
         if t == prefix or t.startswith(prefix + "::") or t.startswith(prefix + "-") or t.startswith(prefix + "_"):
             return False
-    return True
+    top = tag.split("::")[0].strip()
+    return normalize_tag_key(top) in _ACTU_SUBJECT_KEYS
 
 
 def clean_specialty_name(raw_tag: str) -> str:
     """Convertit un tag brut de spécialité en libellé canonique soigné."""
     top = raw_tag.split("::")[0].strip()
     top_norm = normalize_tag_key(top)
-    for canonical in CANONICAL_SPECIALTIES:
-        if normalize_tag_key(canonical) == top_norm:
-            return canonical
+    if top_norm in _ACTU_SUBJECT_KEYS:
+        return _ACTU_SUBJECT_KEYS[top_norm]
     return top.replace("-", " ").replace("_", " ").capitalize()
 
 

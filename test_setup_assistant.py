@@ -93,12 +93,12 @@ def test_apply_edn_deck_preset(temp_anki_col):
             break
 
     assert edn_conf is not None
-    assert edn_conf["new"]["perDay"] == 30
+    assert edn_conf["new"]["perDay"] == 50
     assert edn_conf["new"]["bury"] is True
     assert edn_conf["rev"]["perDay"] == 9999
     assert edn_conf["rev"]["bury"] is True
-    assert edn_conf["lapse"]["leechFails"] == 20
-    assert edn_conf["lapse"]["leechAction"] == 1  # Suspend
+    assert edn_conf["lapse"]["leechFails"] == 12
+    assert edn_conf["lapse"]["leechAction"] == 0  # Suspendre
     assert edn_conf["desiredRetention"] == 0.88
 
     # Le deck Anki EDN doit utiliser cette configuration
@@ -343,8 +343,8 @@ def test_state_persistence_and_missing_addons(monkeypatch):
         "2110939339",
         "24411424",
         "2040501954",
-        "Anki_EDN_NID",             # Alias local pour 501542723
-        "Anki_EDN_Stats",           # Alias local pour 1201122026
+        "Anki_EDN_NID",             # Alias local pour 2135076010
+        "Anki_EDN_Stats",           # Alias local pour 1674438508
         "Anki_EDN_Lier_les_cartes", # Alias local pour 445658251
     ]
     monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.mw", fake_mw)
@@ -400,3 +400,163 @@ def test_sync_first_then_without_login(monkeypatch):
     called = []
     sync_first_then(lambda: called.append(True))
     assert called == [True]
+
+
+def test_setup_assistant_uses_symbols_addon_and_pushes_shortcuts(monkeypatch):
+    """Vérifie que l'assistant d'installation cible 2040501954 pour les symboles et injecte les raccourcis."""
+    from Anki_EDN_Installer.setup_assistant import DEFAULT_SETUP_CONFIG, install_addons
+
+    assert 2040501954 in DEFAULT_SETUP_CONFIG["addons"]
+    assert 1762336370 not in DEFAULT_SETUP_CONFIG["addons"]
+
+    fake_mw = MagicMock()
+    fake_mw.pm.profile = {}
+    fake_mw.addonManager.getConfig.return_value = None
+    fake_mw.addonManager.allAddons.return_value = []
+    monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.mw", fake_mw)
+    monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.showInfo", lambda *a, **kw: None)
+
+    download_addons_mock = MagicMock()
+    monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.download_addons", download_addons_mock)
+
+    import_symbols_mock = MagicMock(return_value=(True, "OK", 50))
+    monkeypatch.setattr("Anki_EDN_Installer.symbols_importer.import_edn_symbols", import_symbols_mock)
+
+    done_called = []
+    install_addons(on_complete=lambda: done_called.append(True))
+
+    assert download_addons_mock.called
+    call_args = download_addons_mock.call_args[0]
+    missing_ids = call_args[2]
+    assert 2040501954 in missing_ids
+
+    # Simuler fin du téléchargement
+    on_done_cb = call_args[3]
+    on_done_cb([])
+
+    assert import_symbols_mock.called
+    assert import_symbols_mock.call_args[1].get("force") is True
+    assert done_called == [True]
+
+
+def test_default_config_uses_updated_edn_stat_and_no_auto_sync():
+    """Vérifie la liste des greffons auto-installés (1674438508 pour EDN Stat, sans Auto Sync 501542723)."""
+    from Anki_EDN_Installer.setup_assistant import DEFAULT_SETUP_CONFIG
+
+    assert DEFAULT_SETUP_CONFIG["addons"] == [1957538407, 1052724801, 2040501954, 1674438508, 445658251]
+    assert 501542723 not in DEFAULT_SETUP_CONFIG["addons"]
+    assert 1201122026 not in DEFAULT_SETUP_CONFIG["addons"]
+    assert DEFAULT_SETUP_CONFIG["options"]["new_per_day"] == 50
+    assert DEFAULT_SETUP_CONFIG["options"]["leech_threshold"] == 12
+
+
+def test_subscribe_ankicollab_directly_registers_and_pulls(monkeypatch):
+    """Vérifie l'abonnement direct et le pull AnkiCollab via l'API interne de 1957538407 sans UI manuelle."""
+    import sys
+    import types
+    from Anki_EDN_Installer.setup_assistant import subscribe_ankicollab_directly
+
+    stored = {"settings": {}}
+    written_configs = []
+    subscribed_codes = []
+    pulled_codes = []
+
+    pkg = types.ModuleType("1957538407")
+    am_mod = types.ModuleType("1957538407.auth_manager")
+    am_mod.auth_manager = MagicMock()
+    am_mod.auth_manager.is_logged_in.return_value = True
+
+    cm_mod = types.ModuleType("1957538407.config_manager")
+    cm_mod.get_stored_config = lambda: dict(stored)
+    cm_mod.write_config = lambda cfg: written_configs.append(cfg)
+
+    id_mod = types.ModuleType("1957538407.identifier")
+    id_mod.subscribe_to_deck = lambda code: subscribed_codes.append(code) or True
+
+    im_mod = types.ModuleType("1957538407.import_manager")
+    im_mod.handle_pull = lambda code, silent=False: pulled_codes.append(code)
+
+    vd_mod = types.ModuleType("1957538407.var_defs")
+    vd_mod.DEFAULT_PROTECTED_TAGS = ["leech", "marked", "missing-media"]
+
+    for name, mod in [
+        ("1957538407", pkg),
+        ("1957538407.auth_manager", am_mod),
+        ("1957538407.config_manager", cm_mod),
+        ("1957538407.identifier", id_mod),
+        ("1957538407.import_manager", im_mod),
+        ("1957538407.var_defs", vd_mod),
+    ]:
+        monkeypatch.setitem(sys.modules, name, mod)
+
+    fake_mw = MagicMock()
+    fake_mw.pm.profile = {}
+    fake_mw.addonManager.getConfig.return_value = None
+    monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.mw", fake_mw)
+
+    ok, status = subscribe_ankicollab_directly()
+    assert ok is True
+    assert status == "subscribed_and_pulled"
+    assert subscribed_codes == ["mango-may-georgia-eleven-moon-orange"]
+    assert pulled_codes == ["mango-may-georgia-eleven-moon-orange"]
+    assert any("mango-may-georgia-eleven-moon-orange" in cfg for cfg in written_configs)
+
+
+def test_card_styles_symbol_tooltips_injection(monkeypatch):
+    """Vérifie l'injection par défaut du script d'infobulles sur symboles et abréviations médicales."""
+    from Anki_EDN_Installer import card_styles
+
+    fake_card = MagicMock(reps=1, type=2, queue=2, lapses=0)
+    monkeypatch.setattr(card_styles, "load_prefs", lambda: {**card_styles.DEFAULT_PREFS, "showSymbolTooltips": True})
+    html_on = card_styles._on_card_will_show("<div>☐ Vérifier PDCB et ◊ bilan</div>", fake_card, "reviewAnswer")
+    assert "edn-sym-tip" in html_on
+    assert "_ednApplySymbolTooltips" in html_on
+    assert "Il faut / toujours" in html_on
+    assert "Parfois / il est possible" in html_on
+    assert "Perte de conscience brève" in html_on
+
+    monkeypatch.setattr(card_styles, "load_prefs", lambda: {**card_styles.DEFAULT_PREFS, "showSymbolTooltips": False})
+    html_off = card_styles._on_card_will_show("<div>☐ Vérifier PDCB</div>", fake_card, "reviewAnswer")
+    assert "_ednApplySymbolTooltips" not in html_off
+
+
+def test_dialog_skips_addons_page_and_imports_symbols_when_preinstalled(temp_anki_col, monkeypatch):
+    """Vérifie le saut en 2 étapes et l'import auto des symboles quand les extensions sont préinstallées."""
+    col, edn_did, other_did = temp_anki_col
+
+    fake_mw = MagicMock()
+    fake_mw.col = col
+    fake_mw.pm = MagicMock()
+    fake_mw.pm.profile = {"autoSync": False, "syncMedia": False}
+    fake_mw.addonManager = MagicMock()
+    fake_mw.addonManager.getConfig.return_value = None
+    fake_mw.addonManager.allAddons.return_value = [
+        "1957538407",
+        "1052724801",
+        "2040501954",
+        "1674438508",
+        "445658251",
+    ]
+    monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.mw", fake_mw)
+
+    imported = []
+
+    def fake_import(force=False):
+        imported.append(force)
+        return True, "OK", 10
+
+    monkeypatch.setattr("Anki_EDN_Installer.symbols_importer.import_edn_symbols", fake_import)
+    monkeypatch.setattr("Anki_EDN_Installer.setup_assistant.deck_card_count", lambda *a, **kw: 0)
+
+    app = QApplication.instance() or QApplication([])
+    dialog = EDNSetupAssistantDialog(parent=None, is_startup=False, col=col)
+
+    assert len(imported) == 1
+    assert dialog.stack.currentIndex() == 1
+    assert "Étape 1 sur 2" in dialog.header_title.text()
+
+    dialog._switch_page(2)
+    assert "Étape 2 sur 2" in dialog.header_title.text()
+    dialog.close()
+
+
