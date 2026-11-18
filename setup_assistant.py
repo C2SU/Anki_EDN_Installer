@@ -573,6 +573,7 @@ def finalize(col=None) -> None:
             shared_cfg = get_config()
             shared_cfg["setup_assistant_shown"] = True
             shared_cfg["setup_assistant_completed"] = True
+            shared_cfg.setdefault("fsrs_install_time", time.time())
             if not already_studied:
                 shared_cfg["initial_suspension_done"] = True
             save_config(shared_cfg)
@@ -1347,11 +1348,13 @@ class EDNSetupAssistantDialog(QDialog):
             btn_text = "Télécharger le deck EDN automatiquement"
         else:
             status_text = (
-                "1. Si vous n'avez pas encore de compte, cliquez sur <b>Créer un compte sur ankicollab.com</b>.<br>"
-                "2. Cliquez ensuite sur <b>Se connecter et télécharger le deck EDN</b> : "
-                "une fois connecté, l'abonnement et le téléchargement démarreront automatiquement."
+                "1. Si vous n'avez pas encore de compte, cliquez sur <b>1. S'inscrire sur ankicollab.com</b> "
+                "pour accéder directement à la page d'inscription.<br>"
+                "2. Cliquez ensuite sur <b>2. Se connecter et télécharger le deck EDN</b> : la fenêtre AnkiCollab "
+                "affichera un code à approuver dans votre navigateur (bouton <i>Approve in your browser</i>, "
+                "ou connexion par mot de passe). Une fois validé, le téléchargement démarrera automatiquement."
             )
-            btn_text = "Se connecter et télécharger le deck EDN"
+            btn_text = "2. Se connecter et télécharger le deck EDN"
 
         self.ankicollab_status_lbl = QLabel(status_text)
         self.ankicollab_status_lbl.setWordWrap(True)
@@ -1364,7 +1367,7 @@ class EDNSetupAssistantDialog(QDialog):
         cancel_btn.clicked.connect(self._on_cancel)
         btn_row.addWidget(cancel_btn)
 
-        signup_btn = QPushButton("1. Créer un compte sur ankicollab.com")
+        signup_btn = QPushButton("1. S'inscrire sur ankicollab.com")
         signup_btn.clicked.connect(lambda: webbrowser.open("https://www.ankicollab.com/signup"))
         btn_row.addWidget(signup_btn)
 
@@ -1395,8 +1398,9 @@ class EDNSetupAssistantDialog(QDialog):
             self.open_ankicollab_btn.setEnabled(False)
         elif status == "not_logged_in":
             self.ankicollab_status_lbl.setText(
-                "<b>Connexion AnkiCollab annulée ou inachevée.</b><br>"
-                "Connectez-vous à votre compte AnkiCollab puis cliquez à nouveau sur le bouton ci-dessous."
+                "<b>Connexion AnkiCollab non finalisée.</b><br>"
+                "Si vous venez de créer votre compte, approuvez ensuite la connexion dans votre navigateur "
+                "(<i>Approve in your browser</i>) puis cliquez à nouveau sur le bouton ci-dessous."
             )
             self.open_ankicollab_btn.setEnabled(True)
             return
@@ -1635,6 +1639,8 @@ class EDNSetupAssistantDialog(QDialog):
         super().closeEvent(event)
 
     def _on_cancel(self):
+        if get_state().get("stage") == "addons_installed":
+            set_state(stage="ankicollab_dismissed")
         self.reject()
         if self.is_startup and getattr(mw, "app", None):
             tooltip(
@@ -1682,6 +1688,7 @@ class EDNSetupAssistantDialog(QDialog):
             shared_cfg = get_config()
             shared_cfg["setup_assistant_shown"] = True
             shared_cfg["setup_assistant_completed"] = True
+            shared_cfg.setdefault("fsrs_install_time", time.time())
             save_config(shared_cfg)
         except Exception:
             pass
@@ -1723,7 +1730,12 @@ def check_startup_assistant() -> None:
         shared_cfg = get_config()
         st = get_state()
 
-        if shared_cfg.get("setup_assistant_shown", False) or shared_cfg.get("setup_assistant_completed", False) or st.get("stage") == "done":
+        resume_after_addons = st.get("stage") == "addons_installed" and deck_card_count() == 0
+        if not resume_after_addons and (
+            shared_cfg.get("setup_assistant_shown", False)
+            or shared_cfg.get("setup_assistant_completed", False)
+            or st.get("stage") == "done"
+        ):
             if st.get("stage") != "done" and deck_card_count() > 0:
                 set_state(stage="done")
             return

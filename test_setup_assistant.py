@@ -560,3 +560,60 @@ def test_dialog_skips_addons_page_and_imports_symbols_when_preinstalled(temp_ank
     dialog.close()
 
 
+def test_startup_resumes_after_addons_installed(monkeypatch):
+    """Vérifie que l'assistant se rouvre au redémarrage après l'installation des greffons."""
+    from Anki_EDN_Installer import setup_assistant
+
+    config_store = {"setup_assistant_shown": True, "setup_assistant_completed": False}
+    monkeypatch.setattr("Anki_EDN_Installer.shared_menu.get_config", lambda: config_store)
+    monkeypatch.setattr("Anki_EDN_Installer.shared_menu.save_config", lambda cfg: config_store.update(cfg))
+    monkeypatch.setattr(setup_assistant, "get_state", lambda: {"stage": "addons_installed", "already_studied": False})
+    monkeypatch.setattr(setup_assistant, "deck_card_count", lambda *a, **kw: 0)
+    monkeypatch.setattr(setup_assistant, "detect_required_addons_status", lambda: {"done": True, "missing": []})
+    monkeypatch.setattr(setup_assistant, "_ensure_symbols_imported_when_ready", lambda *a, **kw: None)
+    monkeypatch.setattr(setup_assistant, "detect_all_setup_statuses", lambda *a, **kw: {"step": {"done": False}})
+
+    fake_mw = MagicMock()
+    fake_mw.col = MagicMock()
+    fake_mw.progress.busy.return_value = False
+    monkeypatch.setattr(setup_assistant, "mw", fake_mw)
+
+    timers = []
+
+    class FakeTimer:
+        def __init__(self, parent=None):
+            self.timeout = MagicMock()
+            self._cb = None
+
+            def connect(fn):
+                self._cb = fn
+
+            self.timeout.connect = connect
+            timers.append(self)
+
+        def start(self, ms):
+            if self._cb:
+                self._cb()
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(setup_assistant, "QTimer", FakeTimer)
+    FakeTimer.singleShot = staticmethod(lambda ms, fn: fn())
+
+    opened = []
+    monkeypatch.setattr(setup_assistant, "sync_first_then", lambda cb: cb())
+    monkeypatch.setattr(setup_assistant, "open_setup_assistant_dialog", lambda *a, **kw: opened.append(True))
+
+    setup_assistant.check_startup_assistant()
+    assert opened == [True]
+
+
+def test_cpam_and_sst_abbreviations_present():
+    """Vérifie la présence de CPAM et SST dans les infobulles d'abréviations."""
+    from Anki_EDN_Installer import card_styles
+
+    assert card_styles.ABBR_TOOLTIPS_MAP.get("CPAM") == "Caisse primaire d'assurance maladie"
+    assert card_styles.ABBR_TOOLTIPS_MAP.get("SST") == "Service de Santé au Travail"
+
+

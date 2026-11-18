@@ -341,4 +341,43 @@ def test_shared_menu_register_action_shortcut_key():
         assert found[0]["shortcut_key"] == "test_scanner_action_reviewer"
 
 
+def test_fsrs_no_notification_before_3_weeks():
+    """Verify FSRS reminder is suppressed during the first 3 weeks after installation."""
+    from Anki_EDN_Installer import fsrs
+
+    fake_mw = MagicMock()
+    fake_mw.col.decks.all_config.return_value = [{"name": "Default", "mod": 0}]
+    now = 1_800_000_000.0
+
+    # 1. Fresh install (no fsrs_install_time, no optimization): records install time and does not pop up
+    cfg_fresh = {"modules": {"fsrs_checker": True}}
+    with patch.object(fsrs, "mw", fake_mw), \
+         patch.object(fsrs, "get_config", return_value=cfg_fresh), \
+         patch.object(fsrs, "save_config") as mock_save, \
+         patch.object(fsrs, "_show_reminder_popup") as mock_popup, \
+         patch("Anki_EDN_Installer.fsrs.time.time", return_value=now):
+        fsrs.check_fsrs_status()
+        assert cfg_fresh["fsrs_install_time"] == now
+        mock_save.assert_called_once()
+        mock_popup.assert_not_called()
+
+    # 2. 10 days after install (< 21 days): still suppressed
+    cfg_10d = {"modules": {"fsrs_checker": True}, "fsrs_install_time": now - (10 * 86400)}
+    with patch.object(fsrs, "mw", fake_mw), \
+         patch.object(fsrs, "get_config", return_value=cfg_10d), \
+         patch.object(fsrs, "_show_reminder_popup") as mock_popup, \
+         patch("Anki_EDN_Installer.fsrs.time.time", return_value=now):
+        fsrs.check_fsrs_status()
+        mock_popup.assert_not_called()
+
+    # 3. 22 days after install (> 21 days): reminder triggers
+    cfg_22d = {"modules": {"fsrs_checker": True}, "fsrs_install_time": now - (22 * 86400)}
+    with patch.object(fsrs, "mw", fake_mw), \
+         patch.object(fsrs, "get_config", return_value=cfg_22d), \
+         patch.object(fsrs, "_show_reminder_popup") as mock_popup, \
+         patch("Anki_EDN_Installer.fsrs.time.time", return_value=now):
+        fsrs.check_fsrs_status()
+        mock_popup.assert_called_once()
+
+
 

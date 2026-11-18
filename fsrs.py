@@ -146,6 +146,14 @@ def get_effective_interval_days() -> Tuple[int, str]:
     return weeks * 7, f"{weeks} semaines"
 
 
+def record_install_time(custom_time: Optional[float] = None) -> None:
+    """Record initial installation timestamp if not already set."""
+    cfg = get_config()
+    if not cfg.get("fsrs_install_time"):
+        cfg["fsrs_install_time"] = custom_time if custom_time is not None else time.time()
+        save_config(cfg)
+
+
 def record_optimization(was_optimal: bool = False, custom_time: Optional[float] = None) -> None:
     """Save latest optimization timestamp and optimal state."""
     cfg = get_config()
@@ -361,6 +369,18 @@ def check_fsrs_status() -> None:
         return
 
     now = time.time()
+
+    # Never notify during the first 3 weeks following installation
+    min_install_seconds = DEFAULT_INTERVAL_WEEKS * 7 * 86400
+    install_ts = cfg.get("fsrs_install_time")
+    has_recorded_opt = bool(cfg.get("fsrs_last_optimization_time"))
+    if not install_ts or not isinstance(install_ts, (int, float)) or install_ts <= 0:
+        if not has_recorded_opt:
+            cfg["fsrs_install_time"] = now
+            save_config(cfg)
+            return
+    elif (now - float(install_ts)) < min_install_seconds:
+        return
 
     # Check snooze
     snooze_until = float(cfg.get("fsrs_snooze_until", 0))

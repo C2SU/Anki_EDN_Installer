@@ -132,6 +132,8 @@ ABBR_TOOLTIPS_MAP = {
     "IRC": "Insuffisance rénale chronique",
     "RR": "Risque relatif",
     "IC": "Insuffisance cardiaque / Intervalle de confiance",
+    "CPAM": "Caisse primaire d'assurance maladie",
+    "SST": "Service de Santé au Travail",
 }
 
 

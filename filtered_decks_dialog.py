@@ -462,7 +462,8 @@ class FilteredDecksDialog(QDialog):
 
         self.multi_tag_info_label = QLabel(
             "Note : dans Anki, une carte ne peut appartenir qu'à un seul paquet filtré à la fois. "
-            "Les cartes multi-taggées (plusieurs items ou matières) ne peuvent donc pas aller dans 2 paquets simultanément."
+            "Les paquets sont créés dans l'ordre : ECOS (si coché), puis disciplines par ordre alphabétique, "
+            "et items par numéro croissant. Les cartes multi-taggées rejoignent donc le premier paquet correspondant créé."
         )
         self.multi_tag_info_label.setWordWrap(True)
         header_layout.addWidget(self.multi_tag_info_label)
